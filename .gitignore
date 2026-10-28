@@ -1,0 +1,12 @@
+node_modules/
+*.log
+.DS_Store
+
+# Runtime output of docker/pi-run.sh
+runs/
+
+# Never commit credentials
+.env
+.env.*
+auth.json
+mcp-auth.json

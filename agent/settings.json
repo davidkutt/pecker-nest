@@ -1,0 +1,37 @@
+{
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-5-5",
+  "defaultThinkingLevel": "medium",
+  "enabledModels": [
+    "router/phased",
+    "anthropic/claude-opus-5-5",
+    "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-haiku-5-5"
+  ],
+  "modelThinkingLevels": {
+    "anthropic/claude-haiku-5-5": "low"
+  },
+  "showCacheMissNotices": true,
+  "defaultTools": ["+grep", "+find", "+ls"],
+  "packages": [
+    "~/dev/pecker-nest",
+    "npm:pi-subagents@0.83.1"
+  ],
+  "subagents": {
+    "defaultModel": "anthropic/claude-sonnet-5-5",
+    "defaultSubagentOnlyExtensions": [
+      "~/dev/pecker-nest/extensions/safety-gate.ts"
+    ],
+    "agentOverrides": {
+      "researcher": { "disabled": true },
+      "evidence-auditor": { "disabled": true },
+      "claude-code": { "disabled": true },
+      "claude-code-writer": { "disabled": true },
+      "codex-exec": { "disabled": true },
+      "codex-exec-writer": { "disabled": true },
+      "cursor-agent": { "disabled": true },
+      "cursor-agent-writer": { "disabled": true }
+    }
+  }
+}

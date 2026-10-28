@@ -1,0 +1,48 @@
+{
+  "name": "pecker-nest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Versioned Pi configuration (nest V1): gates, router, skills, prompts and subagent roles for host and container",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/safety-gate.ts",
+      "./extensions/quality-gate.ts",
+      "./extensions/router.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts/*.md"
+    ]
+  },
+  "pi-subagents": {
+    "agents": [
+      "./agent/agents"
+    ]
+  },
+  "scripts": {
+    "check": "npm run typecheck && npm test",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "e2e": "node test/e2e/run.ts",
+    "e2e:docker": "node test/e2e/docker.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

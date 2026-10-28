@@ -1,0 +1,51 @@
+# Pi with the pecker-nest configuration baked in, for headless runs (docker/pi-run.sh).
+# Build from the repository root:
+#   docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
+#
+# Based on the plain-Docker example in Pi's containerization docs, plus Python, uv and pnpm.
+# No credentials are baked in: ANTHROPIC_API_KEY is passed at run time.
+
+ARG NODE_IMAGE=node:24-bookworm-slim
+FROM ${NODE_IMAGE}
+
+ARG PI_VERSION=1.4.0
+ARG PNPM_VERSION=10.34.9
+ARG UV_VERSION=0.13.6
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/uv \
+  && /opt/uv/bin/pip install --no-cache-dir "uv==${UV_VERSION}" \
+  && ln -s /opt/uv/bin/uv /opt/uv/bin/uvx /usr/local/bin/
+RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" "pnpm@${PNPM_VERSION}" \
+  && npm cache clean --force
+# Mount points for docker/pi-run.sh; fresh volumes copy this ownership.
+RUN mkdir -p /sessions /workspace/node_modules && chown -R node:node /sessions /workspace \
+  && chmod -R a+rwX /sessions /workspace
+
+# The node user (uid 1000) runs Pi; pi-run.sh may run it as the host uid instead, so HOME stays
+# writable for any uid. agent/settings.json loads the package from ~/dev/pecker-nest.
+USER node
+ENV HOME=/home/node \
+  PI_CODING_AGENT_DIR=/home/node/.pi/agent \
+  PI_SKIP_VERSION_CHECK=1 \
+  UV_CACHE_DIR=/tmp/uv-cache \
+  UV_LINK_MODE=copy \
+  UV_PROJECT_ENVIRONMENT=/home/node/venv
+COPY --chown=node:node . /home/node/dev/pecker-nest
+
+# Link the versioned agent files, install the pinned packages from settings.json, and
+# point MCP servers on the host's localhost at the Docker host instead.
+RUN /home/node/dev/pecker-nest/scripts/link.sh \
+  && rm "$PI_CODING_AGENT_DIR/mcp.json" \
+  && sed -e 's#//localhost\b#//host.docker.internal#g' -e 's#//127\.0\.0\.1\b#//host.docker.internal#g' \
+    /home/node/dev/pecker-nest/agent/mcp.json > "$PI_CODING_AGENT_DIR/mcp.json" \
+  && node -e 'for (const p of require(process.argv[1]).packages) if (typeof p === "string" && p.startsWith("npm:")) console.log(p)' \
+    "$PI_CODING_AGENT_DIR/settings.json" | xargs -r -n1 pi install \
+  && pi list \
+  && git config --global --add safe.directory /workspace \
+  && chmod -R a+rwX /home/node
+
+WORKDIR /workspace
+ENTRYPOINT ["pi"]

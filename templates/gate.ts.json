@@ -1,0 +1,5 @@
+{
+  "command": "pnpm run check",
+  "maxRepairRounds": 2,
+  "timeoutSeconds": 600
+}
