@@ -29,9 +29,9 @@ docker --version      # für M6
 
 ## M0 – Fundament (👤 ca. 20 Minuten)
 
-1. **OpenRouter-Konto vorbereiten** (offene Frage „Datenschutz-Stufe“, Empfehlung unten):
+1. **OpenRouter-Konto vorbereiten** (entschieden am 30.10.: ZDR global, Container-Budget 20 $):
    - Unter Settings → Privacy *Zero Data Retention* für „alle anderen Modelle“ einschalten. Dann zeigt OpenRouter deinem Key nur noch ZDR-Endpunkte, und Pi übernimmt das in seine Modellliste.
-   - Unter Keys einen **zweiten Key nur für den Container** anlegen, mit Kreditlimit (offene Frage „Budget“).
+   - Unter Keys einen **zweiten Key nur für den Container** anlegen, mit Kreditlimit 20 $.
 
 2. Repo an genau diese Stelle klonen. `agent/settings.json` lädt das Package von `~/dev/pecker-nest`:
 
@@ -75,7 +75,7 @@ Hinweis: `settings.json` ist ein Symlink ins Repo. Wenn du in `/model` umschalte
 
 ## M1 – Kontext und Befehle (👤 ca. 30 Minuten je Repo)
 
-1. Pilot-Repos festlegen (offene Frage 5): eins in TypeScript, eins in Python.
+1. Pilot-Repos festlegen (offene Frage 4): eins in TypeScript, eins in Python.
 2. Vorlage kopieren und alle `TODO`s füllen: Projekt, Befehle, Architekturregeln.
 
    ```bash
@@ -122,7 +122,7 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
    - **Unser Gate bleibt:** nichts zu tun.
    - **pi-project-profile übernehmen:** `"npm:@lenard9191/pi-project-profile@1.4.0"` zu `packages` in `agent/settings.json` hinzufügen, `"./extensions/quality-gate.ts"` aus `pi.extensions` in `package.json` entfernen und `maxRepairRounds: 2` per `/profile config` setzen. Oder sag mir Bescheid, dann baue ich es um.
 
-## M3 – RAG (👤, hängt an offenen Fragen 2 und 3)
+## M3 – RAG (👤, hängt an offenen Fragen 1 und 2)
 
 1. Server eintragen. Weil `mcp.json` verlinkt ist, landet der Eintrag direkt in `agent/mcp.json` im Repo.
 
@@ -151,7 +151,7 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
 6. **Test 7:** RAG-Server stoppen und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
 7. Committen.
 
-`kb-autocontext.ts` (automatische Injektion vor jedem Prompt) ist nicht gebaut, siehe offene Frage 3.
+`kb-autocontext.ts` (automatische Injektion vor jedem Prompt) ist nicht gebaut, siehe offene Frage 2.
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
@@ -238,13 +238,18 @@ docker build -t pecker-nest-pi -f docker/Dockerfile.pi . && npm run e2e:docker
 
 Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vorgesehen.
 
+## Entschieden
+
+| Datum | Frage | Entscheidung |
+| --- | --- | --- |
+| 30.10.2026 | Datenschutz-Stufe | ZDR global: im OpenRouter-Konto für „alle anderen Modelle“ und per `openRouterRouting` in `agent/models.json`. Kein EU-Routing, keine Erstanbieter ohne ZDR. |
+| 30.10.2026 | Budget des Container-Keys | Kreditlimit 20 $ auf dem Container-Key. Nach den ersten echten Läufen anhand von `/session` und dem Activity-Log prüfen. |
+
 ## Offene Fragen – meine Empfehlung
 
 | # | Frage | Empfehlung |
 | --- | --- | --- |
-| 1 | Datenschutz-Stufe | ZDR global im Konto plus die Vorgaben in `models.json`, so ist es eingerichtet. EU-Routing nur, wenn es eine Vorgabe ist: Es braucht einen Business-Plan und deckt DeepSeek V4 Pro (den Reviewer) derzeit nicht ab. |
-| 2 | Budget des Container-Keys | Klein anfangen, z. B. 10–20 $, und nach den ersten echten Läufen anhand von `/session` bzw. dem Activity-Log nachjustieren. |
-| 3 | RAG per stdio oder HTTP? | HTTP. Nur so erreicht der Container den Server ohne Umbau des Images. |
-| 4 | Auto-Retrieval in V1? | Nein. Erst messen, wie zuverlässig das Modell das Such-Tool von sich aus nutzt (Test 6). `kb-autocontext.ts` braucht einen schlanken Such-Endpunkt; den baue ich gern, wenn du ihn nennst. |
-| 5 | Plain Docker oder Docker Sandboxes? | Plain Docker für V1, so ist es gebaut und getestet. Sandboxes lohnen sich, sobald Läufe auf fremdem Code laufen und der Key nicht im Container liegen soll. |
-| 6 | Pilot-Repos? | Deine Entscheidung. Je ein Repo mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |
+| 1 | RAG per stdio oder HTTP? | HTTP. Nur so erreicht der Container den Server ohne Umbau des Images. |
+| 2 | Auto-Retrieval in V1? | Nein. Erst messen, wie zuverlässig das Modell das Such-Tool von sich aus nutzt (Test 6). `kb-autocontext.ts` braucht einen schlanken Such-Endpunkt; den baue ich gern, wenn du ihn nennst. |
+| 3 | Plain Docker oder Docker Sandboxes? | Plain Docker für V1, so ist es gebaut und getestet. Sandboxes lohnen sich, sobald Läufe auf fremdem Code laufen und der Key nicht im Container liegen soll. |
+| 4 | Pilot-Repos? | Deine Entscheidung. Je ein Repo mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |
