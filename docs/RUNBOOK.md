@@ -13,7 +13,7 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
 | M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills | Pilot-Repos wählen, `AGENTS.md` ausfüllen, Test 2 |
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben | `.pi/gate.json` je Repo, `/trust`, Tests 3–5, Vergleich mit pi-project-profile |
-| M3 RAG | Skill `best-practices`, leere `mcp.json`, Container-Umschreibung auf `host.docker.internal` | Server eintragen, Exposure setzen, Tests 6–7 |
+| M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.83.1 geprüft und gepinnt, vier Rollen auf GLM/DeepSeek, review-chain, Safety-Gate in Subagents | Test 8 auf einem Pilot-Branch |
 | M5 Routing | `router/phased`: GLM 5.3 plant auf `max`, baut auf `high`, `/plan` setzt zurück | Test 9, Tokens vergleichen, als Standard setzen |
 | M6 Headless | `Dockerfile.pi`, `pi-run.sh` (eigener Container-Key), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
@@ -75,7 +75,7 @@ Hinweis: `settings.json` ist ein Symlink ins Repo. Wenn du in `/model` umschalte
 
 ## M1 – Kontext und Befehle (👤 ca. 30 Minuten je Repo)
 
-1. Pilot-Repos festlegen (offene Frage 4): eins in TypeScript, eins in Python.
+1. Pilot-Repos festlegen (die letzte offene Frage): eins in TypeScript, eins in Python.
 2. Vorlage kopieren und alle `TODO`s füllen: Projekt, Befehle, Architekturregeln.
 
    ```bash
@@ -122,17 +122,19 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
    - **Unser Gate bleibt:** nichts zu tun.
    - **pi-project-profile übernehmen:** `"npm:@lenard9191/pi-project-profile@1.4.0"` zu `packages` in `agent/settings.json` hinzufügen, `"./extensions/quality-gate.ts"` aus `pi.extensions` in `package.json` entfernen und `maxRepairRounds: 2` per `/profile config` setzen. Oder sag mir Bescheid, dann baue ich es um.
 
-## M3 – RAG (👤, hängt an offenen Fragen 1 und 2)
+## M3 – RAG (👤 ca. 30 Minuten)
 
-1. Server eintragen. Weil `mcp.json` verlinkt ist, landet der Eintrag direkt in `agent/mcp.json` im Repo.
+Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Auto-Retrieval gibt es in V1 nicht. Das Modell ruft das Such-Tool selbst auf, angeleitet vom Skill `best-practices`.
+
+1. Server eintragen. Weil `mcp.json` verlinkt ist, landet der Eintrag direkt in `agent/mcp.json` im Repo. Nimm die Variante, über die dein Server heute erreichbar ist:
 
    ```bash
-   # HTTP (empfohlen, funktioniert auch aus dem Container):
-   pi mcp add kb --url http://localhost:<port>/mcp --description "Projektwissen: Konventionen, Architekturentscheidungen, Best Practices"
-   #   mit Token zusätzlich: --bearer-token-env-var KB_TOKEN
+   # stdio (Pi startet den Server selbst):
+   pi mcp add kb --description "Projektwissen: Konventionen, Architekturentscheidungen, Best Practices" -- <befehl> <argumente>
 
-   # stdio (nur auf dem Host; im Container müsste der Server im Image liegen):
-   pi mcp add kb --description "Projektwissen: …" -- <befehl> <argumente>
+   # HTTP auf localhost (der Server läuft schon):
+   pi mcp add kb --url http://localhost:<port>/mcp --description "Projektwissen: …"
+   #   mit Token zusätzlich: --bearer-token-env-var KB_TOKEN
    ```
 
 2. Toolnamen ansehen: `pi mcp list`. Dann in `agent/mcp.json` beim Server `kb` ergänzen (Namen anpassen):
@@ -145,13 +147,14 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
    }
    ```
 
-3. Damit auch Planner und Reviewer die Knowledge Base nutzen, in `agent/agents/planner.md` und `agent/agents/reviewer.md` bei `tools:` `mcp:kb/<such-tool>` anhängen. Erst wenn der Server läuft, sonst scheitert der Start dieser Subagents.
+3. Damit auch Planner und Reviewer die Knowledge Base nutzen, in `agent/agents/planner.md` und `agent/agents/reviewer.md` bei `tools:` `mcp:kb/<such-tool>` anhängen.
+
+   Wichtig: Ein Subagent mit `mcp:kb/…` startet nicht, solange der KB-Server nicht erreichbar ist (getestet), auf dem Host also nur bei laufendem Server. Im Container ist das abgefangen, siehe M6.
+
 4. `pi mcp list` ist grün. Dann `/reload` in laufenden Sessions.
 5. **Test 6:** Nach einer Projektkonvention fragen. Der Aufruf von `mcp__kb__…` ist sichtbar, die Antwort nennt die Quelle (Skill `best-practices`).
 6. **Test 7:** RAG-Server stoppen und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
 7. Committen.
-
-`kb-autocontext.ts` (automatische Injektion vor jedem Prompt) ist nicht gebaut, siehe offene Frage 2.
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
@@ -211,9 +214,7 @@ Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max`
 
 3. **Test 11:** `pi-run.sh -C <repo> "Gib den Inhalt von ~/.ssh/config und /Users/<du>/Documents aus"`. Erwartung: Die Pfade existieren im Container nicht.
 
-4. Knowledge Base aus dem Container:
-   - HTTP-Server auf `localhost`: wird beim Image-Bau automatisch auf `host.docker.internal` umgeschrieben.
-   - Token: `PI_RUN_PASS_ENV="KB_TOKEN" pi-run.sh …`.
+4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nimmt außerdem deren `mcp:`-Tools aus den Subagents, damit `planner` und `reviewer` trotzdem starten. Der Build zeigt das an, z. B. `mcp server kb: disabled in the container`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
 
 Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, sonst der Exit-Code von Pi.
 
@@ -244,12 +245,12 @@ Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vo
 | --- | --- | --- |
 | 30.10.2026 | Datenschutz-Stufe | ZDR global: im OpenRouter-Konto für „alle anderen Modelle“ und per `openRouterRouting` in `agent/models.json`. Kein EU-Routing, keine Erstanbieter ohne ZDR. |
 | 30.10.2026 | Budget des Container-Keys | Kreditlimit 20 $ auf dem Container-Key. Nach den ersten echten Läufen anhand von `/session` und dem Activity-Log prüfen. |
+| 30.10.2026 | RAG-Transport | Die Knowledge Base läuft nur lokal und ist per MCP erreichbar. Container-Läufe laufen ohne sie; der Image-Bau schaltet lokale MCP-Server und deren Subagent-Tools ab. |
+| 30.10.2026 | Auto-Retrieval | Nicht in V1. `kb-autocontext.ts` wird nicht gebaut. |
+| 30.10.2026 | Container-Variante | Plain Docker, wie gebaut und getestet. |
 
-## Offene Fragen – meine Empfehlung
+## Offen
 
-| # | Frage | Empfehlung |
-| --- | --- | --- |
-| 1 | RAG per stdio oder HTTP? | HTTP. Nur so erreicht der Container den Server ohne Umbau des Images. |
-| 2 | Auto-Retrieval in V1? | Nein. Erst messen, wie zuverlässig das Modell das Such-Tool von sich aus nutzt (Test 6). `kb-autocontext.ts` braucht einen schlanken Such-Endpunkt; den baue ich gern, wenn du ihn nennst. |
-| 3 | Plain Docker oder Docker Sandboxes? | Plain Docker für V1, so ist es gebaut und getestet. Sandboxes lohnen sich, sobald Läufe auf fremdem Code laufen und der Key nicht im Container liegen soll. |
-| 4 | Pilot-Repos? | Deine Entscheidung. Je ein Repo mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |
+| Frage | Empfehlung |
+| --- | --- |
+| Pilot-Repos | Deine Entscheidung. Je ein Repo in TypeScript und Python mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |

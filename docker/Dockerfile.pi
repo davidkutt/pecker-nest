@@ -36,12 +36,10 @@ ENV HOME=/home/node \
 COPY --chown=node:node . /home/node/dev/pecker-nest
 
 # Link the versioned agent files (settings, models.json with the OpenRouter routing, prompts),
-# install the pinned packages from settings.json, and point MCP servers on the host's
-# localhost at the Docker host instead.
+# switch off MCP servers that run only on the host (the knowledge base) and their subagent
+# tools, and install the pinned packages from settings.json.
 RUN /home/node/dev/pecker-nest/scripts/link.sh \
-  && rm "$PI_CODING_AGENT_DIR/mcp.json" \
-  && sed -e 's#//localhost\b#//host.docker.internal#g' -e 's#//127\.0\.0\.1\b#//host.docker.internal#g' \
-    /home/node/dev/pecker-nest/agent/mcp.json > "$PI_CODING_AGENT_DIR/mcp.json" \
+  && node /home/node/dev/pecker-nest/scripts/container-config.ts "$PI_CODING_AGENT_DIR" \
   && node -e 'for (const p of require(process.argv[1]).packages) if (typeof p === "string" && p.startsWith("npm:")) console.log(p)' \
     "$PI_CODING_AGENT_DIR/settings.json" | xargs -r -n1 pi install \
   && pi list \

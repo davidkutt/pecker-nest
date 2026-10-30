@@ -16,6 +16,7 @@ Stand 30.10.2026 (nach dem Update „GLM 5.3 & DeepSeek über OpenRouter“), Pi
 | Scout auf der „niedrigsten verfügbaren“ Denkstufe | `low` | DeepSeek V4 Flash bietet auch `off`. `low` behält etwas Reasoning für zuverlässige Tool-Aufrufe; `off` ist eine Zeile in `agent/agents/scout.md`. |
 | Router-Code aus dem Update | Gleiches Verhalten, angeboten wird nur die Stufe `high` | Die Phase bestimmt die Stufe (`max` → `high`); eine wählbare Stufe hätte keine Wirkung. |
 | `-e OPENROUTER_API_KEY` (Container-Key) | `pi-run.sh` liest `PI_RUN_OPENROUTER_API_KEY` und gibt ihn als `OPENROUTER_API_KEY` in den Container | Dein interaktiver Key (ohne Limit) landet so nicht versehentlich im Container. Fehlt die Variable, nimmt das Skript `OPENROUTER_API_KEY` und warnt. |
+| RAG-Server aus dem Container erreichbar machen | Container-Läufe ohne Knowledge Base; `scripts/container-config.ts` schaltet beim Image-Bau MCP-Server ab, die nur auf dem Host laufen (stdio, `localhost`), und nimmt deren `mcp:`-Tools aus den Subagents | Entscheidung vom 30.10.: Die Knowledge Base läuft nur lokal. Ohne das Abschalten würde ein Subagent mit `mcp:kb/…` im Container gar nicht starten (getestet: die Kette bricht am Reviewer ab, mit der Anpassung läuft sie durch). |
 | `pi update --models` vor `pi -p` | In `task.sh`, mit 60 s Timeout, Fehlschlag nicht fatal | Der Befehl lädt erst den Katalog von `pi.dev`, dann `/models/user` bei OpenRouter. Ohne Netz läuft Pi mit dem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem. |
 
 ## Was die Tests gefunden haben

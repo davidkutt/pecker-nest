@@ -28,7 +28,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   └── prompts/              review-chain and its four steps
 ├── templates/                AGENTS.ts.md, AGENTS.py.md, gate.ts.json, gate.py.json
 ├── docker/                   Dockerfile.pi, pi-run.sh, task.sh
-├── scripts/link.sh           links agent/ into Pi's agent directory
+├── scripts/
+│   ├── link.sh               links agent/ into Pi's agent directory
+│   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
 └── test/                     unit tests; e2e/ runs real Pi against a scripted OpenRouter mock
 ```
 
