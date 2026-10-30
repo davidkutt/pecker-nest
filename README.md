@@ -38,7 +38,7 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ## Quick start
 
 ```bash
-git clone https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
+git clone -b main https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
 ~/dev/pecker-nest/scripts/link.sh
 pi            # first start installs pi-subagents@0.83.1; then /login openrouter
 pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.83.1

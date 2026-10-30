@@ -37,7 +37,7 @@ docker --version      # für M6
 
    ```bash
    mkdir -p ~/dev
-   git clone -b claude/zealous-hopper-4a610m https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
+   git clone -b main https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
    ```
 
 3. Agent-Dateien verlinken. Das verlinkt auch `models.json` mit den Routing-Vorgaben (`zdr`, `data_collection: deny`, `require_parameters`):

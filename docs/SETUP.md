@@ -52,11 +52,11 @@ Für die interaktive Arbeit brauchst du keinen eigenen Key anzulegen. Du meldest
 
 ```bash
 mkdir -p ~/dev
-git clone https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
+git clone -b main https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
 cd ~/dev/pecker-nest
 ```
 
-Der Code liegt auf dem Branch `claude/zealous-hopper-4a610m`; einen `main` gibt es in diesem Repo noch nicht. Der Klon checkt diesen Branch automatisch aus.
+Der Code liegt auf `main`.
 
 ### Was du dir ansehen solltest
 
@@ -192,7 +192,6 @@ export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit 20 $ Limit
 1. **Abnahmetests:** [Runbook](RUNBOOK.md), Tests 1–13 in beiden Pilot-Repos.
 2. **Knowledge Base eintragen:** Runbook, M3. Das geht mit `pi mcp add kb …`.
 3. **Router ausprobieren:** Runbook, M5. Dort wählst du `/model router/phased`.
-4. **`main` für pecker-nest:** Wenn dir der Stand passt, leg auf GitHub `main` aus dem Branch an und mach ihn zum Default. Danach `git -C ~/dev/pecker-nest fetch && git -C ~/dev/pecker-nest switch main`.
 
 ## Häufige Probleme
 
