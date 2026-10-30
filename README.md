@@ -4,7 +4,8 @@ Versioned [Pi](https://pi.dev) configuration for nest V1: GLM 5.3 and DeepSeek V
 
 The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the update "GLM 5.3 & DeepSeek über OpenRouter" (30.10.2026). In that plan this repo is called `pi-config`.
 
-- **Setup and acceptance tests:** [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- **Start here, from zero:** [docs/SETUP.md](docs/SETUP.md)
+- **Acceptance tests and milestones:** [docs/RUNBOOK.md](docs/RUNBOOK.md)
 - **Deviations from the plan and findings:** [docs/v1-notes.md](docs/v1-notes.md)
 
 ## Layout

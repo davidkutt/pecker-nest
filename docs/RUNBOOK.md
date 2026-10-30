@@ -1,6 +1,6 @@
 # Runbook nest V1
 
-Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026 und das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026. `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update.
+Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026 und das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026. `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update. Noch nichts eingerichtet? Dann zuerst der [Setup-Guide](SETUP.md).
 
 **Legende:** ✅ erledigt und getestet · 👤 dein Teil
 
