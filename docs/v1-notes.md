@@ -21,11 +21,12 @@ Stand 30.10.2026 (nach dem Update „GLM 5.3 & DeepSeek über OpenRouter“), Pi
 
 ## Was die Tests gefunden haben
 
-Die End-to-End-Tests (echtes Pi gegen einen Mock; zuerst der Anthropic-, seit dem Update der OpenRouter-API) haben drei Fehler aufgedeckt, die behoben sind:
+Die End-to-End-Tests (echtes Pi gegen einen Mock; zuerst der Anthropic-, seit dem Update der OpenRouter-API) und die Probeläufe mit den Pilot-Repos haben vier Fehler aufgedeckt, die behoben sind:
 
 - **`.txt` galt als Dokumentation.** Änderungen an `requirements.txt` hätten den Check nicht ausgelöst. Jetzt gelten nur `.md`, `.mdx`, `.markdown`, `.rst` und `.adoc` als reine Doku.
 - **`canContinue` als Vorbedingung war falsch.** Im Print-Modus meldet Pi beim Settle `canContinue: false`, die Fortsetzung mit eigener Nachricht funktioniert trotzdem. Ohne den Fix wären die Reparaturrunden headless ausgefallen.
 - **Docker unter Linux:** Mit Host-uid ≠ 1000 konnte der Agent im gemounteten Repo nicht schreiben, und das Gate-Log ließ sich nicht anlegen. Behoben durch Läufe als Host-uid und Logs über stderr.
+- **pnpm-Store im Repo:** Der Probelauf mit pecker-api legte `.pnpm-store/` im gemounteten Repo an, weil `/workspace` ein eigenes Dateisystem ist. Das Image setzt den Store jetzt nach `/home/node/.pnpm-store`.
 
 Mit OpenRouter bestätigt (11 Szenarien plus Container-Lauf):
 

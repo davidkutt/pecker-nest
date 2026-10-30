@@ -32,7 +32,8 @@ ENV HOME=/home/node \
   PI_SKIP_VERSION_CHECK=1 \
   UV_CACHE_DIR=/tmp/uv-cache \
   UV_LINK_MODE=copy \
-  UV_PROJECT_ENVIRONMENT=/home/node/venv
+  UV_PROJECT_ENVIRONMENT=/home/node/venv \
+  npm_config_store_dir=/home/node/.pnpm-store
 COPY --chown=node:node . /home/node/dev/pecker-nest
 
 # Link the versioned agent files (settings, models.json with the OpenRouter routing, prompts),

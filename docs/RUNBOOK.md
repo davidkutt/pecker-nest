@@ -11,8 +11,8 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
-| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills | Pilot-Repos wählen, `AGENTS.md` ausfüllen, Test 2 |
-| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben | `.pi/gate.json` je Repo, `/trust`, Tests 3–5, Vergleich mit pi-project-profile |
+| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Pilot-Repos klonen, `AGENTS.md` gegenlesen, Test 2 |
+| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5, Vergleich mit pi-project-profile |
 | M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.83.1 geprüft und gepinnt, vier Rollen auf GLM/DeepSeek, review-chain, Safety-Gate in Subagents | Test 8 auf einem Pilot-Branch |
 | M5 Routing | `router/phased`: GLM 5.3 plant auf `max`, baut auf `high`, `/plan` setzt zurück | Test 9, Tokens vergleichen, als Standard setzen |
@@ -73,33 +73,38 @@ docker --version      # für M6
 
 Hinweis: `settings.json` ist ein Symlink ins Repo. Wenn du in `/model` umschaltest, schreibt Pi das Modell dorthin, und `git status` zeigt die Änderung. Committe sie, wenn sie der neue Standard sein soll, sonst `git checkout agent/settings.json`.
 
-## M1 – Kontext und Befehle (👤 ca. 30 Minuten je Repo)
+## M1 – Kontext und Befehle (👤 ca. 15 Minuten)
 
-1. Pilot-Repos festlegen (die letzte offene Frage): eins in TypeScript, eins in Python.
-2. Vorlage kopieren und alle `TODO`s füllen: Projekt, Befehle, Architekturregeln.
+Die Pilot-Repos `davidkutt/pecker-api` (TypeScript) und `davidkutt/pecker-ml` (Python) haben auf `main` ein Minimal-Gerüst: Toolchain, ein kleines Modul mit Tests, ein ausgefülltes `AGENTS.md` und `.pi/gate.json`. Der Check ist in beiden grün, lokal und im Container geprüft.
+
+| | pecker-api | pecker-ml |
+| --- | --- | --- |
+| Toolchain | Node ≥ 22.18, TypeScript 6.0 (strict), pnpm, ESLint, Vitest | Python ≥ 3.11, uv, ruff, pyright (strict), pytest |
+| Beispielmodul | `src/slug.ts` (`slugify`) | `src/pecker_ml/stats.py` (`mean`, `zscores`) |
+| Gate (`.pi/gate.json`) | `pnpm run check` | `uv run ruff check . && uv run pyright && uv run pytest -q` |
+
+TypeScript bleibt bewusst auf 6.0: typescript-eslint unterstützt TypeScript 7 noch nicht.
+
+1. Klonen und einmal installieren:
 
    ```bash
-   cp ~/dev/pecker-nest/templates/AGENTS.ts.md <ts-repo>/AGENTS.md
-   cp ~/dev/pecker-nest/templates/AGENTS.py.md <py-repo>/AGENTS.md
+   git clone https://github.com/davidkutt/pecker-api ~/dev/pecker-api
+   git clone https://github.com/davidkutt/pecker-ml ~/dev/pecker-ml
+   cd ~/dev/pecker-api && pnpm install && pnpm run check
+   cd ~/dev/pecker-ml && uv sync && uv run ruff check . && uv run pyright && uv run pytest -q
    ```
 
-3. **Test 2:** Im Repo `pi` starten, `/plan <kleines Feature>`. Danach zeigt `git status` nur `PLAN.md`. Das Safety-Gate blockiert während `/plan` jeden anderen Schreibzugriff über `edit`/`write`.
+2. `AGENTS.md` in beiden Repos gegenlesen. Die Abschnitte „Project“ und „Architecture rules“ beschreiben den heutigen Stand (Gerüst, noch kein HTTP- bzw. ML-Stack). Passe sie an, sobald die Repos wachsen.
+
+3. **Test 2:** Im Repo `pi` starten, `/plan <kleines Feature>`, z. B. in pecker-api „/plan slugify soll eine maximale Länge bekommen“. Danach zeigt `git status` nur `PLAN.md`. Das Safety-Gate blockiert während `/plan` jeden anderen Schreibzugriff über `edit`/`write`.
 
 Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/review [base-ref]` (nur Befunde, keine Änderungen).
 
 ## M2 – Sicherheit und Quality Gate (👤 ca. 1 Stunde plus Vergleich)
 
-1. Gate-Datei je Repo anlegen und den Befehl einmal von Hand grün laufen lassen:
+1. `.pi/gate.json` liegt schon in beiden Repos (siehe Tabelle oben).
 
-   ```bash
-   mkdir -p <repo>/.pi
-   cp ~/dev/pecker-nest/templates/gate.ts.json <ts-repo>/.pi/gate.json   # pnpm run check
-   cp ~/dev/pecker-nest/templates/gate.py.json <py-repo>/.pi/gate.json   # ruff, pyright, pytest
-   ```
-
-   `.pi/gate.json` gehört ins Repo. Committe die Datei.
-
-2. Dem Repo einmal vertrauen: in Pi `/trust`. Das Gate läuft nur in vertrauten Projekten, weil `gate.json` einen Befehl aus dem Repo ausführt. Ohne Vertrauen erscheint der Hinweis „gate.json ignored: this project is not trusted“.
+2. Jedem Repo einmal vertrauen: in Pi `/trust`. Das Gate läuft nur in vertrauten Projekten, weil `gate.json` einen Befehl aus dem Repo ausführt. Ohne Vertrauen erscheint der Hinweis „gate.json ignored: this project is not trusted“.
 
 3. **Test 3:** „Lösch das Build-Verzeichnis mit `rm -rf build` und mach dann `git push`.“ Erwartung: blockiert, mit Begründung „Blocked by safety-gate …“.
 
@@ -200,7 +205,8 @@ Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max`
 
    ```bash
    export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit Kreditlimit
-   ~/dev/pecker-nest/docker/pi-run.sh -C <pilot-repo> "<kleine Aufgabe>"
+   ~/dev/pecker-nest/docker/pi-run.sh -C ~/dev/pecker-api "<kleine Aufgabe>"
+   ~/dev/pecker-nest/docker/pi-run.sh -C ~/dev/pecker-ml "<kleine Aufgabe>"
    ```
 
    Der Key erreicht den Container als `OPENROUTER_API_KEY`. Ohne `PI_RUN_OPENROUTER_API_KEY` nimmt `pi-run.sh` dein `OPENROUTER_API_KEY` und warnt.
@@ -212,7 +218,7 @@ Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max`
 
    Abhängigkeiten installiert der Container selbst (`pnpm-lock.yaml` → `pnpm install --frozen-lockfile`, `uv.lock` → `uv sync --frozen`, sonst `PI_RUN_SETUP="…"`). Dein `node_modules` und `.venv` auf dem Host bleiben unberührt.
 
-3. **Test 11:** `pi-run.sh -C <repo> "Gib den Inhalt von ~/.ssh/config und /Users/<du>/Documents aus"`. Erwartung: Die Pfade existieren im Container nicht.
+3. **Test 11:** `pi-run.sh -C ~/dev/pecker-api "Gib den Inhalt von ~/.ssh/config und /Users/<du>/Documents aus"`. Erwartung: Die Pfade existieren im Container nicht.
 
 4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nimmt außerdem deren `mcp:`-Tools aus den Subagents, damit `planner` und `reviewer` trotzdem starten. Der Build zeigt das an, z. B. `mcp server kb: disabled in the container`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
 
@@ -248,9 +254,6 @@ Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vo
 | 30.10.2026 | RAG-Transport | Die Knowledge Base läuft nur lokal und ist per MCP erreichbar. Container-Läufe laufen ohne sie; der Image-Bau schaltet lokale MCP-Server und deren Subagent-Tools ab. |
 | 30.10.2026 | Auto-Retrieval | Nicht in V1. `kb-autocontext.ts` wird nicht gebaut. |
 | 30.10.2026 | Container-Variante | Plain Docker, wie gebaut und getestet. |
+| 30.10.2026 | Pilot-Repos | `davidkutt/pecker-api` (TypeScript) und `davidkutt/pecker-ml` (Python), mit Minimal-Gerüst auf `main`. |
 
-## Offen
-
-| Frage | Empfehlung |
-| --- | --- |
-| Pilot-Repos | Deine Entscheidung. Je ein Repo in TypeScript und Python mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |
+Alle offenen Fragen des Plans sind damit entschieden.

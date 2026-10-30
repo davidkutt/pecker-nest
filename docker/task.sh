@@ -12,8 +12,8 @@ set -uo pipefail
 task="$1"
 cd /workspace
 
-# Dependencies live in the container (UV_PROJECT_ENVIRONMENT, masked node_modules), so the
-# host's .venv and node_modules are neither used nor modified.
+# Dependencies live in the container (UV_PROJECT_ENVIRONMENT, masked node_modules, the pnpm store
+# in HOME), so the host's .venv and node_modules are neither used nor modified.
 setup="${PI_RUN_SETUP-}"
 if [[ -z "${PI_RUN_SETUP+set}" ]]; then
   if [[ -f pnpm-lock.yaml ]]; then setup="pnpm install --frozen-lockfile"
