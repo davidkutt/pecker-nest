@@ -1,0 +1,14 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "openrouter": {
+      "compat": {
+        "openRouterRouting": {
+          "zdr": true,
+          "data_collection": "deny",
+          "require_parameters": true
+        }
+      }
+    }
+  }
+}

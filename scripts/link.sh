@@ -45,7 +45,7 @@ link() {
 
 (( CHECK_ONLY )) || mkdir -p "$AGENT_DIR/prompts"
 
-for name in settings.json APPEND_SYSTEM.md mcp.json; do
+for name in settings.json models.json APPEND_SYSTEM.md mcp.json; do
   link "$NEST_DIR/agent/$name" "$AGENT_DIR/$name"
 done
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { editedCodeSinceLastUser, nextPhase, physicalLevel } from "../extensions/lib/router-logic.ts";
+import { editedCodeSinceLastUser, nextPhase, PHASE_LEVEL } from "../extensions/lib/router-logic.ts";
 
 const user = { role: "user", content: "add a parser" };
 function edit(id: string, path: string, isError = false) {
@@ -39,11 +39,8 @@ describe("nextPhase", () => {
 	});
 });
 
-describe("physicalLevel", () => {
-	it("plans at the selected level and builds one lower", () => {
-		assert.equal(physicalLevel("plan", "high"), "high");
-		assert.equal(physicalLevel("build", "high"), "medium");
-		assert.equal(physicalLevel("build", "xhigh"), "high");
-		assert.equal(physicalLevel("build", "medium"), "low");
+describe("PHASE_LEVEL", () => {
+	it("plans at max and builds at high", () => {
+		assert.deepEqual(PHASE_LEVEL, { plan: "max", build: "high" });
 	});
 });

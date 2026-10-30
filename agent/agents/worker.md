@@ -1,8 +1,8 @@
 ---
 name: worker
-description: Implements an approved plan on Sonnet, tests first, and runs the repository check before reporting. The only role that edits files.
-model: anthropic/claude-sonnet-5-5
-thinking: medium
+description: Implements an approved plan on GLM 5.3, tests first, and runs the repository check before reporting. The only role that edits files.
+model: openrouter/z-ai/glm-5.3
+thinking: high
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 acceptanceRole: writer
 systemPromptMode: replace

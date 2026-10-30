@@ -5,19 +5,11 @@ export interface RouterState {
 	phase: Phase;
 }
 
-export const PROVIDER = "anthropic";
-export const PLAN_MODEL = "claude-opus-5-5";
-export const BUILD_MODEL = "claude-sonnet-5-5";
+export const PROVIDER = "openrouter";
+export const MODEL = "z-ai/glm-5.3";
 
-const LEVELS = ["low", "medium", "high", "xhigh"] as const;
-export type RouterLevel = (typeof LEVELS)[number];
-export const ROUTER_LEVELS: RouterLevel[] = ["medium", "high", "xhigh"];
-
-/** Planning uses the selected level on Opus; building runs one level lower on Sonnet. */
-export function physicalLevel(phase: Phase, selected: string): RouterLevel {
-	const index = Math.max(0, LEVELS.indexOf(selected as RouterLevel));
-	return phase === "plan" ? LEVELS[index] : LEVELS[Math.max(0, index - 1)];
-}
+/** One model for both phases; only the reasoning effort changes. */
+export const PHASE_LEVEL = { plan: "max", build: "high" } as const;
 
 /** Changes to these files do not end the plan phase: writing PLAN.md is still planning. */
 export function isDocsPath(path: string): boolean {
@@ -56,7 +48,7 @@ export function editedCodeSinceLastUser(messages: readonly MessageLike[]): boole
 
 /**
  * The phase for the next request. `planRequested` is set when the user starts a new task
- * with /plan, which always returns to Opus.
+ * with /plan, which always returns to planning.
  */
 export function nextPhase(state: RouterState | undefined, messages: readonly MessageLike[], planRequested: boolean): Phase {
 	if (planRequested) return "plan";

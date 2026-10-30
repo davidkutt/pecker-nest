@@ -1,8 +1,8 @@
 /**
  * End-to-end checks: a real Pi loads this package and talks to a scripted mock of the
- * Anthropic API. No API key, no token cost. Covers the safety gate, the quality gate's repair
- * loop, /plan, project trust, the router's phases, the safety gate inside a subagent, and the
- * review chain's model assignment.
+ * OpenRouter API. No API key, no token cost. Covers the default model and OpenRouter routing
+ * preferences, the safety gate, the quality gate's repair loop, /plan, project trust, the
+ * router's phases, the safety gate inside a subagent, and the review chain's model assignment.
  *
  *   npm run e2e                 # uses `pi` from PATH
  *   PI_BIN=/path/to/pi npm run e2e
@@ -18,13 +18,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MockAnthropic, type MockRequest, type Reply } from "./mock-anthropic.ts";
+import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
-const OPUS = "claude-opus-5-5";
-const SONNET = "claude-sonnet-5-5";
-const HAIKU = "claude-haiku-5-5";
+const GLM = "z-ai/glm-5.3";
+const DS_PRO = "deepseek/deepseek-v4-pro-0813";
+const DS_FLASH = "deepseek/deepseek-v4-flash-0731";
+const ROUTING = { zdr: true, data_collection: "deny", require_parameters: true };
+const PI_ENV = { OPENROUTER_API_KEY: "sk-or-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" };
 const root = mkdtempSync(join(tmpdir(), "nest-e2e-"));
 
 // ---------------------------------------------------------------- scripted model
@@ -42,6 +44,8 @@ function respond(request: MockRequest): Reply {
 	if (role) return respondAsSubagent(role, request);
 
 	switch (request.scenario) {
+		case "defaults":
+			return step === 0 ? tool("bash", { command: "true" }) : say("done");
 		case "safety":
 			return [tool("bash", { command: "rm -rf build && git push" }), tool("write", { path: ".env", content: "HACKED=1\n" }), say("done")][step] ?? say("done");
 		case "gate-repair":
@@ -85,7 +89,7 @@ const CHAIN_SCRIPT = [
 /** Parent side of a delegation: enable the subagent tool if needed, delegate once, then finish. */
 function delegate(request: MockRequest, delegation: Reply): Reply {
 	const called = (name: string) =>
-		request.messages.some((message) => message.role === "assistant" && JSON.stringify(message.content).includes(`"name":"${name}"`));
+		request.messages.some((message) => message.role === "assistant" && message.tool_calls?.some((call) => call.function?.name === name));
 	if (called("subagent")) return say("delegated");
 	if (request.toolNames.includes("subagent")) return delegation;
 	if (request.toolNames.includes("subagents_enable")) return tool("subagents_enable", {});
@@ -111,13 +115,14 @@ function sh(cwd: string, command: string) {
 function makeAgentDir(port: number): string {
 	const dir = join(root, "agent");
 	mkdirSync(join(dir, "prompts"), { recursive: true });
-	writeFileSync(join(dir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: `http://127.0.0.1:${port}` } } }));
 	if (process.env.E2E_USE_LINK) {
 		// Exactly the host setup: scripts/link.sh and the ~/dev/pecker-nest paths in settings.json.
 		const link = spawnSync(join(NEST, "scripts/link.sh"), { encoding: "utf-8", env: { ...process.env, PI_CODING_AGENT_DIR: dir } });
 		if (link.status !== 0) throw new Error(`scripts/link.sh failed: ${link.stderr}`);
-		return dir;
+		rmSync(join(dir, "models.json"));
 	}
+	writeFileSync(join(dir, "models.json"), JSON.stringify(mockModelsJson(port)));
+	if (process.env.E2E_USE_LINK) return dir;
 	// The same files scripts/link.sh links, with ~/dev/pecker-nest pointed at this checkout.
 	const settings = readFileSync(join(NEST, "agent/settings.json"), "utf-8").replaceAll("~/dev/pecker-nest", NEST);
 	writeFileSync(join(dir, "settings.json"), settings);
@@ -125,6 +130,13 @@ function makeAgentDir(port: number): string {
 	writeFileSync(join(dir, "mcp.json"), readFileSync(join(NEST, "agent/mcp.json")));
 	for (const file of readdirSync(join(NEST, "agent/prompts"))) symlinkSync(join(NEST, "agent/prompts", file), join(dir, "prompts", file));
 	return dir;
+}
+
+/** The repository's models.json with OpenRouter pointed at the mock. */
+function mockModelsJson(port: number, host = "127.0.0.1") {
+	const models = JSON.parse(readFileSync(join(NEST, "agent/models.json"), "utf-8"));
+	models.providers.openrouter.baseUrl = `http://${host}:${port}/api/v1`;
+	return models;
 }
 
 function makeRepo(name: string, files: Record<string, string>, gate = true): string {
@@ -151,13 +163,13 @@ function runPi(cwd: string, args: string[]): Promise<{ code: number | null; stdo
 		const child = spawn(PI, args, {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, ANTHROPIC_API_KEY: "sk-ant-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" },
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, ...PI_ENV },
 		});
 		let stdout = "";
 		let stderr = "";
 		child.stdout.on("data", (data) => (stdout += data));
 		child.stderr.on("data", (data) => (stderr += data));
-		const timer = setTimeout(() => child.kill("SIGKILL"), 180_000);
+		const timer = setTimeout(() => child.kill("SIGKILL"), Number(process.env.E2E_TIMEOUT_MS ?? 180_000));
 		child.on("close", (code) => {
 			clearTimeout(timer);
 			if (process.env.E2E_VERBOSE) process.stderr.write(`--- pi ${args.join(" ")}\n${stderr}`);
@@ -172,7 +184,7 @@ function runPiRpc(cwd: string, message: string, done: () => boolean): Promise<vo
 		const child = spawn(PI, ["--mode", "rpc"], {
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, ANTHROPIC_API_KEY: "sk-ant-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" },
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, ...PI_ENV },
 		});
 		let stderr = "";
 		child.stdout.resume();
@@ -200,16 +212,15 @@ function assertChain(scenario: string) {
 		if (role && !byRole.has(role)) byRole.set(role, request);
 	}
 	assert.deepEqual([...byRole.keys()], ["scout", "planner", "worker", "reviewer"]);
-	assert.equal(byRole.get("scout")!.model, HAIKU);
-	assert.equal(byRole.get("planner")!.model, OPUS);
-	assert.equal(byRole.get("worker")!.model, SONNET);
-	assert.equal(byRole.get("reviewer")!.model, OPUS);
+	const assigned = [...byRole.values()].map((request) => `${request.model}:${request.effort}`);
+	assert.deepEqual(assigned, [`${DS_FLASH}:low`, `${GLM}:max`, `${GLM}:high`, `${DS_PRO}:high`]);
+	for (const request of byRole.values()) assert.deepEqual(request.routing, ROUTING, "subagents use the same provider routing");
 	const reviewerTools = byRole.get("reviewer")!.toolNames;
 	for (const writer of ["edit", "write", "bash"]) assert.ok(!reviewerTools.includes(writer), `reviewer has ${writer}`);
 	assert.match(byRole.get("reviewer")!.firstUserText, new RegExp(`worker report for ${scenario}`));
 }
 
-const mock = new MockAnthropic(respond);
+const mock = new MockOpenRouter(respond);
 function requestsFor(scenario: string) {
 	return mock.requests.filter((request) => request.scenario === scenario);
 }
@@ -217,6 +228,34 @@ function requestsFor(scenario: string) {
 // ---------------------------------------------------------------- scenarios
 
 const scenarios: [string, () => Promise<void>][] = [
+	[
+		"default session runs GLM 5.3 at high with OpenRouter routing and session affinity (tests 1, 12)",
+		async () => {
+			const repo = makeRepo("defaults", {}, false);
+			const probe = join(root, "probe-scope.ts");
+			writeFileSync(
+				probe,
+				`export default function (pi) { pi.on("session_start", (_e, ctx) => process.stderr.write("SCOPED " + JSON.stringify(ctx.scopedModels.map((s) => s.model.provider + "/" + s.model.id)) + "\\n")); }\n`,
+			);
+			const run = await runPi(repo, ["-p", "-e", probe, "[scenario:defaults] run a command"]);
+			assert.equal(run.code, 0, run.stderr);
+			const requests = requestsFor("defaults");
+			assert.equal(requests.length, 2);
+			for (const request of requests) {
+				assert.equal(request.model, GLM);
+				assert.equal(request.effort, "high");
+				assert.deepEqual(request.routing, ROUTING, "models.json routing reaches OpenRouter as the provider field");
+			}
+			assert.ok(requests[0].sessionId, "x-session-id is sent for sticky provider routing");
+			assert.equal(requests[1].sessionId, requests[0].sessionId, "one session id per session");
+			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
+			assert.deepEqual(
+				scoped,
+				["router/phased", `openrouter/${GLM}`, `openrouter/${DS_PRO}`, `openrouter/${DS_FLASH}`],
+				"enabledModels resolves the IDs with slashes, so Ctrl+P cycles exactly these",
+			);
+		},
+	],
 	[
 		"safety gate blocks rm -rf, git push and writing .env (test 3, 4)",
 		async () => {
@@ -292,38 +331,36 @@ const scenarios: [string, () => Promise<void>][] = [
 		},
 	],
 	[
-		"router plans on Opus, builds on Sonnet after the first code edit, and /plan returns to Opus (test 9)",
+		"router plans on GLM max, builds on GLM high after the first code edit, and /plan returns to max (test 9)",
 		async () => {
 			const repo = makeRepo("router", {}, false);
 			const run = await runPi(repo, [
 				"-p",
 				"--model",
-				"router/phased:high",
+				"router/phased",
 				"[scenario:router] add a",
 				"[scenario:router-more] and more",
 				"/plan next step [scenario:router-plan]",
 			]);
 			assert.equal(run.code, 0, run.stderr);
-			const models = (scenario: string) => requestsFor(scenario).map((request) => request.model);
-			assert.deepEqual(models("router"), [OPUS, OPUS, SONNET]);
-			assert.deepEqual(models("router-more"), [SONNET]);
-			assert.deepEqual(models("router-plan"), [OPUS, OPUS], "writing PLAN.md stays in the plan phase");
-			assert.deepEqual(
-				requestsFor("router").map((request) => request.effort),
-				["high", "high", "medium"],
-				"Opus plans at the selected level, Sonnet builds one lower",
-			);
+			const efforts = (scenario: string) => requestsFor(scenario).map((request) => request.effort);
+			assert.ok(mock.requests.filter((request) => request.scenario?.startsWith("router")).every((request) => request.model === GLM));
+			assert.deepEqual(efforts("router"), ["max", "max", "high"]);
+			assert.deepEqual(efforts("router-more"), ["high"]);
+			assert.deepEqual(efforts("router-plan"), ["max", "max"], "writing PLAN.md stays in the plan phase");
+			const sessions = new Set(mock.requests.filter((request) => request.scenario?.startsWith("router")).map((request) => request.sessionId));
+			assert.equal(sessions.size, 1, "the effort switch keeps the session id, so OpenRouter stays on the same provider");
 		},
 	],
 	[
-		"a worker subagent runs on Sonnet with the safety gate loaded",
+		"a worker subagent runs on GLM 5.3 at high with the safety gate loaded",
 		async () => {
 			const repo = makeRepo("subagent", { "build/out.js": "1\n" }, false);
 			const run = await runPi(repo, ["-p", "[scenario:subagent] delegate the cleanup to the worker subagent"]);
 			assert.equal(run.code, 0, run.stderr);
 			const child = requestsFor("child");
 			assert.ok(child.length >= 2, `worker made ${child.length} requests; stderr: ${run.stderr}`);
-			assert.ok(child.every((request) => request.model === SONNET));
+			assert.ok(child.every((request) => request.model === GLM && request.effort === "high"));
 			assert.match(child[1].lastUserText, /Blocked by safety-gate/);
 			assert.ok(existsSync(join(repo, "build/out.js")));
 		},
@@ -354,7 +391,8 @@ const scenarios: [string, () => Promise<void>][] = [
 
 const port = await mock.start();
 agentDir = makeAgentDir(port);
-const install = spawnSync(PI, ["install", "npm:pi-subagents@0.83.1"], {
+const subagentsPackage = JSON.parse(readFileSync(join(NEST, "agent/settings.json"), "utf-8")).packages.find((p: string) => p.startsWith("npm:pi-subagents@"));
+const install = spawnSync(PI, ["install", subagentsPackage], {
 	encoding: "utf-8",
 	env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_SKIP_VERSION_CHECK: "1" },
 });

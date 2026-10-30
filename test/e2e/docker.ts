@@ -1,6 +1,6 @@
 /**
  * Headless container check (acceptance tests 10 and 11): docker/pi-run.sh runs a task in the
- * pecker-nest image against a scratch repository, with the scripted Anthropic mock on the host.
+ * pecker-nest image against a scratch repository, with the scripted OpenRouter mock on the host.
  * The model breaks the gate once, repairs it, and tries to read a host path outside the repo.
  *
  *   docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
@@ -13,14 +13,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MockAnthropic, type Reply } from "./mock-anthropic.ts";
+import { MockOpenRouter, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const HOST_ONLY_PATH = join(NEST, "package.json");
 const root = mkdtempSync(join(tmpdir(), "nest-docker-"));
 
 const write = (content: string): Reply => ({ tools: [{ name: "write", input: { path: "value.txt", content } }] });
-const mock = new MockAnthropic((request) => {
+const mock = new MockOpenRouter((request) => {
 	const step = request.stepInScenario;
 	if (step === 0) return { tools: [{ name: "bash", input: { command: `cat ${HOST_ONLY_PATH}` } }] };
 	if (step === 1) return write("bad\n");
@@ -36,8 +36,11 @@ writeFileSync(join(repo, ".pi/gate.json"), JSON.stringify({ command: "node check
 writeFileSync(join(repo, "check.js"), `if (require("fs").readFileSync("value.txt", "utf8").trim() !== "ok") { console.error("value.txt is not ok"); process.exit(1); }\n`);
 writeFileSync(join(repo, "value.txt"), "ok\n");
 spawnSync("bash", ["-c", "git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init"], { cwd: repo });
+// The repository's models.json with OpenRouter pointed at the mock, mounted over the linked file.
 const models = join(root, "models.json");
-writeFileSync(models, JSON.stringify({ providers: { anthropic: { baseUrl: `http://127.0.0.1:${port}` } } }));
+const modelsJson = JSON.parse(readFileSync(join(NEST, "agent/models.json"), "utf-8"));
+modelsJson.providers.openrouter.baseUrl = `http://127.0.0.1:${port}/api/v1`;
+writeFileSync(models, JSON.stringify(modelsJson));
 
 const logs = join(root, "logs");
 // Async on purpose: the mock answers from this process's event loop.
@@ -46,9 +49,10 @@ const run = await new Promise<{ status: number | null; stdout: string; stderr: s
 		stdio: ["ignore", "pipe", "pipe"],
 		env: {
 			...process.env,
-			ANTHROPIC_API_KEY: "sk-ant-mock",
+			OPENROUTER_API_KEY: "",
+			PI_RUN_OPENROUTER_API_KEY: "sk-or-mock",
 			PI_RUN_LOG_DIR: logs,
-			PI_RUN_DOCKER_ARGS: `--network host -v ${models}:/home/node/.pi/agent/models.json:ro`,
+			PI_RUN_DOCKER_ARGS: `--network host -v ${models}:/home/node/dev/pecker-nest/agent/models.json:ro`,
 		},
 	});
 	let stdout = "";
@@ -67,7 +71,17 @@ try {
 	const events = readFileSync(join(logs, jsonl), "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 	assert.equal(events[0].type, "session", "JSONL log starts with the session header");
 	assert.ok(events.some((event) => event.type === "agent_settled"));
-	assert.match(readFileSync(join(logs, files.find((file) => file.endsWith(".stderr.log"))!), "utf-8"), /=== gate exit: 0/);
+	const stderrLog = readFileSync(join(logs, files.find((file) => file.endsWith(".stderr.log"))!), "utf-8");
+	// The refresh needs pi.dev and openrouter.ai; it is allowed to fail (Pi keeps its bundled catalog).
+	const refresh = /=== models exit: (\d+)/.exec(stderrLog);
+	assert.ok(refresh, "the model list refresh ran before Pi");
+	if (refresh[1] !== "0") console.log(`note: model refresh exited ${refresh[1]} (no internet in the container?); Pi used its bundled catalog`);
+	assert.match(stderrLog, /=== gate exit: 0/);
+	assert.ok(mock.requests.length > 0 && mock.requests.every((request) => request.model === "z-ai/glm-5.3"));
+	assert.ok(
+		mock.requests.every((request) => JSON.stringify(request.routing) === JSON.stringify(modelsJson.providers.openrouter.compat.openRouterRouting)),
+		"the container sends the routing preferences from models.json",
+	);
 	assert.equal(readFileSync(join(repo, "value.txt"), "utf-8"), "ok\n");
 	const status = spawnSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf-8" }).stdout.trim();
 	assert.equal(status, "", "the repair restored value.txt, nothing else changed");

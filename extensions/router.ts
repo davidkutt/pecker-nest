@@ -1,34 +1,25 @@
 /**
- * Router: the virtual model `router/phased` plans on Opus and builds on Sonnet.
+ * Router: the virtual model `router/phased` runs GLM 5.3 on OpenRouter and changes only the
+ * reasoning effort between phases.
  *
- * - Phase "plan": Opus 5.5 at the selected thinking level (default high). Opus explores,
- *   plans and makes the first code edit.
+ * - Phase "plan": GLM 5.3 at `max`. It explores, plans and makes the first code edit.
  * - After the first successful edit/write of a non-documentation file, the next request
- *   moves to phase "build": Sonnet 5.5, one thinking level lower. The session stays there,
- *   so a task costs a single prompt-cache miss.
+ *   moves to phase "build": GLM 5.3 at `high`. The session stays there.
  * - Starting a task with /plan returns to phase "plan".
- * - Retries stay on the model that failed and continuations on the phase model, so the
- *   prompt cache holds. Requests outside the agent loop (compaction summaries) use Sonnet.
+ * - Retries stay on the model and effort that failed. Requests outside the agent loop
+ *   (compaction summaries) use `high`.
  *
- * The phase is router state: Pi stores it on the session branch, so it follows /tree,
- * forks and compaction. Pattern: docs/virtual-models.md and examples/extensions/jev-router.ts.
+ * The model never changes, so the prompt prefix and OpenRouter's sticky provider routing stay
+ * the same across the switch. The phase is router state: Pi stores it on the session branch,
+ * so it follows /tree, forks and compaction. Pattern: docs/virtual-models.md.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	BUILD_MODEL,
-	nextPhase,
-	type Phase,
-	PLAN_MODEL,
-	PROVIDER,
-	physicalLevel,
-	ROUTER_LEVELS,
-	type RouterState,
-} from "./lib/router-logic.ts";
+import { MODEL, nextPhase, type Phase, PHASE_LEVEL, PROVIDER, type RouterState } from "./lib/router-logic.ts";
 
-function physicalModel(ctx: ExtensionContext, id: string) {
-	const model = ctx.modelRegistry.find(PROVIDER, id);
-	if (!model) throw new Error(`router/phased: ${PROVIDER}/${id} is not in the model catalog`);
+function glm(ctx: ExtensionContext) {
+	const model = ctx.modelRegistry.find(PROVIDER, MODEL);
+	if (!model) throw new Error(`router/phased: ${PROVIDER}/${MODEL} is not available (check /model and your OpenRouter key)`);
 	return model;
 }
 
@@ -45,16 +36,17 @@ export default function (pi: ExtensionAPI) {
 	pi.registerVirtualModel<RouterState>({
 		provider: "router",
 		id: "phased",
-		name: "Phased (Opus plans, Sonnet builds)",
-		thinkingLevels: ROUTER_LEVELS,
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
+		name: "Phased (GLM 5.3: max plans, high builds)",
+		// The phase decides the effort; the selected level is not used.
+		thinkingLevels: ["high"],
+		contextWindow: 1_048_576,
+		maxTokens: 131_072,
 		route(request, ctx) {
 			if (request.reason === "direct") {
-				return { model: physicalModel(ctx, BUILD_MODEL), thinkingLevel: "medium" };
+				return { model: glm(ctx), thinkingLevel: PHASE_LEVEL.build };
 			}
 			if (request.reason === "retry" && request.failed) {
-				return { model: request.failed.model, thinkingLevel: request.failed.thinkingLevel ?? "medium" };
+				return { model: request.failed.model, thinkingLevel: request.failed.thinkingLevel ?? PHASE_LEVEL.build };
 			}
 
 			const consumePlanRequest = request.reason === "user" && planRequested;
@@ -62,8 +54,8 @@ export default function (pi: ExtensionAPI) {
 			const phase: Phase = nextPhase(request.state, request.messages, consumePlanRequest);
 			const changed = request.state?.phase !== phase;
 			return {
-				model: physicalModel(ctx, phase === "plan" ? PLAN_MODEL : BUILD_MODEL),
-				thinkingLevel: physicalLevel(phase, request.thinkingLevel),
+				model: glm(ctx),
+				thinkingLevel: PHASE_LEVEL[phase],
 				...(changed ? { state: { phase } } : {}),
 			};
 		},

@@ -1,17 +1,14 @@
 {
   "$schema": "https://pi.dev/schemas/settings.schema.json",
-  "defaultProvider": "anthropic",
-  "defaultModel": "claude-sonnet-5-5",
-  "defaultThinkingLevel": "medium",
+  "defaultProvider": "openrouter",
+  "defaultModel": "z-ai/glm-5.3",
+  "defaultThinkingLevel": "high",
   "enabledModels": [
     "router/phased",
-    "anthropic/claude-opus-5-5",
-    "anthropic/claude-sonnet-5-5",
-    "anthropic/claude-haiku-5-5"
+    "openrouter/z-ai/glm-5.3",
+    "openrouter/deepseek/deepseek-v4-pro-0813",
+    "openrouter/deepseek/deepseek-v4-flash-0731"
   ],
-  "modelThinkingLevels": {
-    "anthropic/claude-haiku-5-5": "low"
-  },
   "showCacheMissNotices": true,
   "defaultTools": ["+grep", "+find", "+ls"],
   "packages": [
@@ -19,7 +16,7 @@
     "npm:pi-subagents@0.83.1"
   ],
   "subagents": {
-    "defaultModel": "anthropic/claude-sonnet-5-5",
+    "defaultModel": "openrouter/z-ai/glm-5.3",
     "defaultSubagentOnlyExtensions": [
       "~/dev/pecker-nest/extensions/safety-gate.ts"
     ],

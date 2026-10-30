@@ -1,8 +1,8 @@
 ---
 name: planner
-description: Turns a task and scout context into a small, test-first implementation plan on Opus. Read-only; returns the plan instead of editing.
-model: anthropic/claude-opus-5-5
-thinking: high
+description: Turns a task and scout context into a small, test-first implementation plan on GLM 5.3 at max effort. Read-only; returns the plan instead of editing.
+model: openrouter/z-ai/glm-5.3
+thinking: max
 tools: read, grep, find, ls
 systemPromptMode: replace
 inheritProjectContext: true

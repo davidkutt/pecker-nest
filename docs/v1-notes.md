@@ -1,6 +1,6 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 28.10.2026, Pi 1.4.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Grundlage sind die Docs und Typdeklarationen aus dem npm-Paket. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 30.10.2026 (nach dem Update „GLM 5.3 & DeepSeek über OpenRouter“), Pi 1.4.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus dem npm-Paket. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
 
 ## Abweichungen vom Plan
 
@@ -13,33 +13,46 @@ Stand 28.10.2026, Pi 1.4.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@
 | Quality Gate im Worker | Der Worker führt den Check laut Prompt selbst aus (max. 2 Wiederholungen); die Hauptsession prüft per git | Das Quality-Gate der Hauptsession erkennt Änderungen per git, also auch die von Subagents. |
 | `Dockerfile.pi` nach offiziellem Beispiel | Zusätzlich `task.sh`: Setup im Container, Pi, Gate-Nachprüfung; Läufe unter Linux als Host-uid | Host-`node_modules`/`.venv` passen nicht ins Linux-Image und dürfen nicht überschrieben werden. Unter Linux mit uid ≠ 1000 wäre das Repo sonst nicht beschreibbar. |
 | uv aus dem offiziellen Image (`ghcr.io/astral-sh/uv`) | uv per pip von PyPI, Version gepinnt | Gleiche Version, eine Registry weniger. |
+| Scout auf der „niedrigsten verfügbaren“ Denkstufe | `low` | DeepSeek V4 Flash bietet auch `off`. `low` behält etwas Reasoning für zuverlässige Tool-Aufrufe; `off` ist eine Zeile in `agent/agents/scout.md`. |
+| Router-Code aus dem Update | Gleiches Verhalten, angeboten wird nur die Stufe `high` | Die Phase bestimmt die Stufe (`max` → `high`); eine wählbare Stufe hätte keine Wirkung. |
+| `-e OPENROUTER_API_KEY` (Container-Key) | `pi-run.sh` liest `PI_RUN_OPENROUTER_API_KEY` und gibt ihn als `OPENROUTER_API_KEY` in den Container | Dein interaktiver Key (ohne Limit) landet so nicht versehentlich im Container. Fehlt die Variable, nimmt das Skript `OPENROUTER_API_KEY` und warnt. |
+| `pi update --models` vor `pi -p` | In `task.sh`, mit 60 s Timeout, Fehlschlag nicht fatal | Der Befehl lädt erst den Katalog von `pi.dev`, dann `/models/user` bei OpenRouter. Ohne Netz läuft Pi mit dem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem. |
 
 ## Was die Tests gefunden haben
 
-Die End-to-End-Tests (echtes Pi gegen einen Anthropic-Mock) haben drei Fehler aufgedeckt, die behoben sind:
+Die End-to-End-Tests (echtes Pi gegen einen Mock; zuerst der Anthropic-, seit dem Update der OpenRouter-API) haben drei Fehler aufgedeckt, die behoben sind:
 
 - **`.txt` galt als Dokumentation.** Änderungen an `requirements.txt` hätten den Check nicht ausgelöst. Jetzt gelten nur `.md`, `.mdx`, `.markdown`, `.rst` und `.adoc` als reine Doku.
 - **`canContinue` als Vorbedingung war falsch.** Im Print-Modus meldet Pi beim Settle `canContinue: false`, die Fortsetzung mit eigener Nachricht funktioniert trotzdem. Ohne den Fix wären die Reparaturrunden headless ausgefallen.
 - **Docker unter Linux:** Mit Host-uid ≠ 1000 konnte der Agent im gemounteten Repo nicht schreiben, und das Gate-Log ließ sich nicht anlegen. Behoben durch Läufe als Host-uid und Logs über stderr.
 
-Außerdem bestätigt:
+Mit OpenRouter bestätigt (11 Szenarien plus Container-Lauf):
 
-- **Router:** Für Claude 5.5 schickt Pi die Denkstufe als Nachricht innerhalb der Konversation (`supportsMidConvoEffort`), nicht nur als Request-Parameter.
-- **Gemessene Abfolge:** Opus high, Opus high, nach der ersten Code-Änderung Sonnet medium. Ein neuer Prompt bleibt auf Sonnet, `/plan` geht zurück auf Opus.
-- **Subagents:** `scout`, `planner`, `worker` und `reviewer` laufen auf Haiku, Opus, Sonnet und Opus. Der Reviewer hat weder `edit` noch `write` noch `bash`. Im Worker blockiert das Safety-Gate `rm -rf`.
+- **Standard:** Die Hauptsession fragt `z-ai/glm-5.3` mit `reasoning.effort: high` an. `enabledModels` löst die IDs mit Schrägstrich auf: Ctrl+P schaltet genau `router/phased` und die drei OpenRouter-Modelle durch.
+- **Routing-Vorgaben:** Jede Anfrage enthält `provider: { zdr: true, data_collection: "deny", require_parameters: true }`, in der Hauptsession, in allen vier Subagents und im Container.
+- **compat wird zusammengeführt:** Pi mischt das `compat` aus `models.json` Feld für Feld in das jedes Modells. Die eingebauten Werte (`thinkingFormat: openrouter`, Session-Header) bleiben erhalten.
+- **Sticky Routing:** Pi schickt pro Session eine feste `x-session-id`, auch über den Phasenwechsel des Routers hinweg.
+- **Router:** Alle Anfragen gehen an GLM 5.3. Gemessen: `max`, `max`, nach der ersten Code-Änderung `high`. Ein neuer Prompt bleibt auf `high`, `/plan` geht zurück auf `max`.
+- **Subagents:** `scout`, `planner`, `worker` und `reviewer` laufen auf DeepSeek V4 Flash (`low`), GLM 5.3 (`max`), GLM 5.3 (`high`) und DeepSeek V4 Pro (`high`). pi-subagents löst `openrouter/z-ai/glm-5.3:max` korrekt auf. Der Reviewer hat weder `edit` noch `write` noch `bash`. Im Worker blockiert das Safety-Gate `rm -rf`.
 
 ## Modelle
 
-Laut Pi-Katalog 1.4.0 (Provider `anthropic`, alle 1M Kontext, 128K Output; Preise in USD je Million Tokens, Input/Output):
+Laut Pi-Katalog 1.4.0 (Provider `openrouter`, alle 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys.
 
-| Modell | ID | Input / Output |
-| --- | --- | --- |
-| Opus 5.5 | `claude-opus-5-5` | 4 / 20 |
-| Sonnet 5.5 | `claude-sonnet-5-5` | 2 / 10 |
-| Haiku 5.5 | `claude-haiku-5-5` | 0,10 / 0,50 |
-| Fable 5.1 | `claude-fable-5-1` | 10 / 50 |
+| Modell | ID | Preis | Denkstufen | Rolle |
+| --- | --- | --- | --- | --- |
+| GLM 5.3 | `z-ai/glm-5.3` | 0,079 / 1,40 / 0,078 | `low`, `high`, `max` (nicht abschaltbar) | Hauptsession, Router, `planner` (`max`), `worker` (`high`) |
+| DeepSeek V4 Pro 0813 | `deepseek/deepseek-v4-pro-0813` | 0,66 / 1,98 / 0,022 | `off`, `low`, `high`, `max` | `reviewer` (`high`) |
+| DeepSeek V4 Flash 0731 | `deepseek/deepseek-v4-flash-0731` | 0,044 / 0,133 / 0,0014 | `off`, `low`, `high`, `max` | `scout` (`low`) |
 
-Der Router bildet die gewählte Denkstufe so ab: Opus plant auf der gewählten Stufe, Sonnet baut eine Stufe tiefer (high → Opus high, Sonnet medium). Angeboten werden `medium`, `high` und `xhigh`.
+Der Katalog nennt für DeepSeek V4 Pro einen anderen Preis als dein Update (ab 0,10 / 8,00). Der Preis hängt am Upstream-Provider; maßgeblich ist, was OpenRouter mit ZDR tatsächlich routet (Test 12).
+
+## OpenRouter-Routing
+
+- **`agent/models.json`** wird wie `settings.json` nach `~/.pi/agent/` verlinkt und ins Image übernommen. Es setzt für alle OpenRouter-Modelle `openRouterRouting` mit `zdr: true`, `data_collection: "deny"` und `require_parameters: true`. Pi schickt das als `provider`-Feld.
+- **Bewusst ohne `order` und `sort`:** Beides umgeht das Sticky Routing. `only` und `ignore` kannst du gefahrlos ergänzen.
+- **Quantisierung:** `quantizations` ist nicht gesetzt. Mit `["fp8", "bf16"]` schließt du stark quantisierte Endpunkte aus, riskierst aber, dass mit ZDR kein Provider übrig bleibt.
+- **EU-Endpunkt** (`https://eu.openrouter.ai/api/v1` als `baseUrl`): nicht eingerichtet. Er braucht einen Business-Plan und bedient DeepSeek V4 Pro derzeit nicht.
 
 ## Quality Gate im Detail
 
@@ -70,9 +83,9 @@ Geprüft wurde Version 0.83.1 (npm, Quelle `github.com/nicobailon/pi-subagents`,
   - nur wenn diese Profile gewählt werden: externe CLIs (`claude`, `codex`, `cursor-agent`). Sie sind deaktiviert.
 - **Peer-Dependencies:** sauber deklariert; Laufzeit-Abhängigkeiten sind gepinnt.
 
-Deaktiviert in `settings.json`: `researcher` und `evidence-auditor` (bräuchten `pi-web-access`) sowie alle sechs Profile für externe CLIs. `oracle` und `delegate` bleiben und laufen standardmäßig auf Sonnet (`subagents.defaultModel`), weil Kinder den virtuellen Router nicht laden.
+Deaktiviert in `settings.json`: `researcher` und `evidence-auditor` (bräuchten `pi-web-access`) sowie alle sechs Profile für externe CLIs. `oracle` und `delegate` bleiben und laufen standardmäßig auf GLM 5.3 (`subagents.defaultModel`), weil Kinder den virtuellen Router nicht laden.
 
-Update-Weg: Version in `agent/settings.json` anheben, `npm run e2e` laufen lassen, dann committen.
+Update-Weg: Version in `agent/settings.json` anheben, `npm run e2e` laufen lassen, dann committen. Seit dem 30.10. gibt es 0.84.0; sie ist nicht geprüft, gepinnt bleibt 0.83.1.
 
 ## pi-project-profile
 
@@ -98,6 +111,8 @@ Bewertung von Version 1.4.0 aus dem Quellcode; der praktische Test in den Pilot-
 ## Was nicht getestet werden konnte
 
 - **Echte Modelle, Pilot-Repos und die Knowledge Base:** brauchen deine Schlüssel und Repos. Die Mock-Tests prüfen die Verdrahtung, nicht die Qualität der Antworten.
+- **Was OpenRouter aus den Vorgaben macht:** ob mit ZDR und `require_parameters` für alle drei Modelle Provider übrig bleiben, welche das sind (Test 12) und ob der Cache trifft (Test 13). Getestet ist nur, dass Pi die Vorgaben und die Session-ID schickt.
+- **Erfolgreiches `pi update --models`:** braucht `pi.dev`, das hier gesperrt war. Getestet ist der Fehlerfall: Der Lauf geht mit dem eingebauten Katalog weiter.
 - **Der `apt-get`-Schritt im `Dockerfile.pi`:** Die Debian-Mirrors waren aus der Build-Umgebung gesperrt. Getestet wurde eine Variante auf `node:24-bookworm` (git und python3 vorinstalliert) mit identischen übrigen Schritten. Beim ersten Build auf deinem Rechner läuft der apt-Schritt zum ersten Mal.
 - **macOS-Besonderheiten:** Docker Desktop und Bash 3.2. Die Skripte sind auf Bash 3.2 ausgelegt, liefen aber nur unter Linux.
 - **Interaktive TUI:** Fußzeile, `/subagents-fleet` und Benachrichtigungen. Getestet wurden Print-, JSON- und RPC-Modus.

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# In-container runner used by docker/pi-run.sh: install dependencies, run Pi headless, run the
-# gate once more as an independent check.
+# In-container runner used by docker/pi-run.sh: install dependencies, refresh the OpenRouter
+# model list, run Pi headless, run the gate once more as an independent check.
 #
 #   task.sh "<task>"
 #
-# stdout carries only Pi's JSONL event stream. Setup and gate output go to stderr between
-# `=== setup`/`=== gate` marker lines, which pi-run.sh stores as <id>.stderr.log.
+# stdout carries only Pi's JSONL event stream. Setup, model refresh and gate output go to stderr
+# between `=== setup`/`=== models`/`=== gate` marker lines, which pi-run.sh stores as <id>.stderr.log.
 # Exit code: Pi's exit code if it failed, 3 if setup failed, 2 if the gate is red, else 0.
 set -uo pipefail
 
@@ -27,6 +27,12 @@ if [[ -n "$setup" ]]; then
   echo "=== setup exit: $setup_status" >&2
   [[ $setup_status -eq 0 ]] || exit 3
 fi
+
+# `pi -p` and JSON mode use the last saved model list, and a fresh container has none. This
+# fetches the list the key may use, which reflects OpenRouter guardrails such as ZDR.
+echo "=== models: pi update --models" >&2
+timeout 60 pi update --models >&2
+echo "=== models exit: $?" >&2
 
 pi --mode json --approve --session-dir /sessions "$task"
 pi_status=$?

@@ -1,22 +1,23 @@
 # Runbook nest V1
 
-Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026. `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests entsprechen dem Plan.
+Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026 und das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026. `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update.
 
 **Legende:** ✅ erledigt und getestet · 👤 dein Teil
 
 ## Stand
 
-Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.4.0 getestet. Statt der Anthropic-API antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 10 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config, nicht das Urteil der echten Modelle. Dafür sind die Abnahmetests unten da.
+Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.4.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 11 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
 
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
-| M0 Fundament | Package, `settings.json`, `link.sh`, Modell-IDs im Pi-Katalog bestätigt | Klonen, verlinken, Anthropic-Zugang, Test 1 |
+| M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
 | M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills | Pilot-Repos wählen, `AGENTS.md` ausfüllen, Test 2 |
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben | `.pi/gate.json` je Repo, `/trust`, Tests 3–5, Vergleich mit pi-project-profile |
 | M3 RAG | Skill `best-practices`, leere `mcp.json`, Container-Umschreibung auf `host.docker.internal` | Server eintragen, Exposure setzen, Tests 6–7 |
-| M4 Subagents | pi-subagents 0.83.1 geprüft und gepinnt, vier Rollen, review-chain, Safety-Gate in Subagents | Test 8 auf einem Pilot-Branch |
-| M5 Routing | `router/phased`: Opus plant, Sonnet baut, `/plan` setzt zurück | Test 9, Kosten vergleichen, als Standard setzen |
-| M6 Headless | `Dockerfile.pi`, `pi-run.sh`, `task.sh` (Setup, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
+| M4 Subagents | pi-subagents 0.83.1 geprüft und gepinnt, vier Rollen auf GLM/DeepSeek, review-chain, Safety-Gate in Subagents | Test 8 auf einem Pilot-Branch |
+| M5 Routing | `router/phased`: GLM 5.3 plant auf `max`, baut auf `high`, `/plan` setzt zurück | Test 9, Tokens vergleichen, als Standard setzen |
+| M6 Headless | `Dockerfile.pi`, `pi-run.sh` (eigener Container-Key), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
+| Neu | – | Tests 12 (Provider-Routing) und 13 (Caching) |
 
 ## Voraussetzungen
 
@@ -26,33 +27,34 @@ node --version        # mindestens 22.18 (nur für npm run check / e2e)
 docker --version      # für M6
 ```
 
-## M0 – Fundament (👤 ca. 10 Minuten)
+## M0 – Fundament (👤 ca. 20 Minuten)
 
-1. Repo an genau diese Stelle klonen. `agent/settings.json` lädt das Package von `~/dev/pecker-nest`:
+1. **OpenRouter-Konto vorbereiten** (offene Frage „Datenschutz-Stufe“, Empfehlung unten):
+   - Unter Settings → Privacy *Zero Data Retention* für „alle anderen Modelle“ einschalten. Dann zeigt OpenRouter deinem Key nur noch ZDR-Endpunkte, und Pi übernimmt das in seine Modellliste.
+   - Unter Keys einen **zweiten Key nur für den Container** anlegen, mit Kreditlimit (offene Frage „Budget“).
+
+2. Repo an genau diese Stelle klonen. `agent/settings.json` lädt das Package von `~/dev/pecker-nest`:
 
    ```bash
    mkdir -p ~/dev
    git clone -b claude/zealous-hopper-4a610m https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
    ```
 
-2. Agent-Dateien verlinken:
+3. Agent-Dateien verlinken. Das verlinkt auch `models.json` mit den Routing-Vorgaben (`zdr`, `data_collection: deny`, `require_parameters`):
 
    ```bash
    ~/dev/pecker-nest/scripts/link.sh
    ```
 
-   Vorhandene Dateien in `~/.pi/agent` werden nicht gelöscht, sondern als `*.bak.<zeitstempel>` beiseitegelegt. Schau in das Backup deiner alten `settings.json`. Übernimm Packages oder Einstellungen, die du behalten willst, nach `~/dev/pecker-nest/agent/settings.json`. `auth.json` und Sessions bleiben unberührt.
+   Vorhandene Dateien in `~/.pi/agent` werden nicht gelöscht, sondern als `*.bak.<zeitstempel>` beiseitegelegt. Schau in die Backups deiner alten `settings.json` und `models.json`. Übernimm, was du behalten willst, in die Dateien unter `~/dev/pecker-nest/agent/`. `auth.json` und Sessions bleiben unberührt.
 
-3. Anthropic verbinden (offene Frage 1, Empfehlung unten). Für den Container brauchst du in jedem Fall einen API-Key:
+4. `pi` starten. Beim ersten Start installiert Pi `pi-subagents@0.83.1` (ein paar Sekunden). Dann anmelden:
 
-   ```bash
-   # in ~/.zshrc oder über deinen Secret-Manager
-   export ANTHROPIC_API_KEY=sk-ant-...
+   ```text
+   /login openrouter
    ```
 
-   Willst du interaktiv dein Abo nutzen, zusätzlich in Pi `/login` ausführen.
-
-4. `pi` einmal starten. Beim ersten Start installiert Pi `pi-subagents@0.83.1` (ein paar Sekunden).
+   Alternativ `export OPENROUTER_API_KEY=sk-or-...` in `~/.zshrc`. Nach dem Login lädt Pi die Modellliste deines Keys neu.
 
 5. **Test 1:**
 
@@ -63,7 +65,9 @@ docker --version      # für M6
    #   npm:pi-subagents@0.83.1
    ```
 
-   In Pi `/model` öffnen: Opus 5.5, Sonnet 5.5, Haiku 5.5 und `router/phased` sind da. Die Reserve Fable 5.1 holst du bei Bedarf mit `/model anthropic/claude-fable-5-1`. `enabledModels` steuert nur, welche Modelle Ctrl+P durchschaltet.
+   In Pi `/model` öffnen. Unter `openrouter` stehen `z-ai/glm-5.3`, `deepseek/deepseek-v4-pro-0813` und `deepseek/deepseek-v4-flash-0731`, dazu `router/phased`. Mit Ctrl+P schaltest du genau diese vier durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
+
+   Fehlt eines der drei Modelle, filtert es dein Konto heraus, meist wegen ZDR. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
 
    Abweichung vom Plan: `pi list` zeigt zwei Einträge, nicht einen. pi-subagents ist schon gepinnt.
 
@@ -160,10 +164,10 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.83.1 gepinnt (Befund in [v1-
    /prompt-workflow review-chain <Aufgabe, z. B. "Füge X hinzu">
    ```
 
-   Die Kette läuft `scout` (Haiku) → `planner` (Opus) → `worker` (Sonnet) → `reviewer` (Opus). Prüfe:
+   Die Kette läuft `scout` (DeepSeek V4 Flash, `low`) → `planner` (GLM 5.3, `max`) → `worker` (GLM 5.3, `high`) → `reviewer` (DeepSeek V4 Pro, `high`). Prüfe:
 
    - Jeder Agent auf seinem Modell: `/subagents-fleet` öffnen oder den Transcript des Laufs ansehen.
-   - Der Reviewer findet den eingebauten Bug und ändert keinen Code. Er hat keine Schreib-Tools, nicht einmal `bash`.
+   - Der DeepSeek-Reviewer findet den eingebauten Bug im GLM-Code und ändert keinen Code. Er hat keine Schreib-Tools, nicht einmal `bash`.
 
    Headless (`pi -p`) funktioniert `/prompt-workflow` nicht (Fehler „ctx is stale“ aus pi-subagents). Dort `/review-chain <Aufgabe>` nehmen. Dann startet das Modell dieselbe Kette als Workflow-Skript.
 
@@ -171,12 +175,15 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.83.1 gepinnt (Befund in [v1-
 
 ## M5 – Modell-Routing (👤 eine Aufgabe, ca. 30 Minuten)
 
-1. In Pi `/model router/phased`, dann `/thinking high`.
-2. **Test 9:** Eine Aufgabe von Plan bis Umsetzung. Die Fußzeile zeigt zuerst `phased • high → claude-opus-5-5 • high`. Nach der ersten Code-Änderung zeigt sie `→ claude-sonnet-5-5 • medium`. Ein Cache-Miss-Hinweis erscheint nur beim Wechsel (`showCacheMissNotices` ist an).
+Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max` und baut nach der ersten Code-Änderung auf `high`.
+
+1. In Pi `/model router/phased`.
+2. **Test 9:** Eine Aufgabe von Plan bis Umsetzung. Die Fußzeile zeigt zuerst etwa `phased • high → z-ai/glm-5.3 • max`, nach der ersten Code-Änderung `… • high`. Weil Modell und Session-ID gleich bleiben, meldet `showCacheMissNotices` beim Wechsel keinen zusätzlichen Cache-Miss.
    - `PLAN.md` und andere Markdown-Dateien beenden die Planungsphase nicht.
-   - `/plan` beginnt eine neue Aufgabe wieder auf Opus.
-3. Kosten: `/session` zeigt die Kosten je Modell. Dieselbe Aufgabe einmal mit `/model` → Opus 5.5 (ohne Router) wiederholen und vergleichen.
-4. Ist der Router stabil, die Auswahl aus Schritt 1 als Standard behalten: Pi hat `router/phased` in `agent/settings.json` geschrieben. Committe das, und setze dort `"defaultThinkingLevel": "high"`.
+   - `/plan` beginnt eine neue Aufgabe wieder auf `max`.
+   - Die gewählte Stufe des Routers (`high`) zählt nicht; die Phase bestimmt die Stufe.
+3. Tokens vergleichen: `/session` zeigt Tokens und Kosten. Dieselbe Aufgabe einmal mit `/model openrouter/z-ai/glm-5.3` und `/thinking max` wiederholen. Der Router lohnt sich, wenn er weniger Tokens oder Wartezeit braucht. Bringt er wenig, lass M5 weg und stell die Stufe bei Bedarf per `/thinking` um.
+4. Ist der Router stabil, die Auswahl aus Schritt 1 als Standard behalten: Pi hat `router/phased` in `agent/settings.json` geschrieben. Committe das.
 
 ## M6 – Headless im Container (👤 ca. 30 Minuten)
 
@@ -189,13 +196,15 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.83.1 gepinnt (Befund in [v1-
 2. **Test 10:**
 
    ```bash
-   export ANTHROPIC_API_KEY=sk-ant-...
+   export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit Kreditlimit
    ~/dev/pecker-nest/docker/pi-run.sh -C <pilot-repo> "<kleine Aufgabe>"
    ```
 
+   Der Key erreicht den Container als `OPENROUTER_API_KEY`. Ohne `PI_RUN_OPENROUTER_API_KEY` nimmt `pi-run.sh` dein `OPENROUTER_API_KEY` und warnt.
+
    Erwartung:
-   - `result: ok` und `gate exit: 0`.
-   - Das JSONL-Log liegt in `~/dev/pecker-nest/runs/<id>.jsonl`, Setup- und Gate-Ausgabe in `<id>.stderr.log`.
+   - `result: ok`, `models exit: 0` und `gate exit: 0`. `models exit` ist `pi update --models` vor dem Lauf: Es lädt die Modellliste deines Container-Keys (braucht `pi.dev` und `openrouter.ai`). Scheitert es, läuft Pi mit seinem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem.
+   - Das JSONL-Log liegt in `~/dev/pecker-nest/runs/<id>.jsonl`, Setup-, Modell- und Gate-Ausgabe in `<id>.stderr.log`.
    - „changed files“ listet nur Dateien des Repos.
 
    Abhängigkeiten installiert der Container selbst (`pnpm-lock.yaml` → `pnpm install --frozen-lockfile`, `uv.lock` → `uv sync --frozen`, sonst `PI_RUN_SETUP="…"`). Dein `node_modules` und `.venv` auf dem Host bleiben unberührt.
@@ -208,6 +217,17 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.83.1 gepinnt (Befund in [v1-
 
 Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, sonst der Exit-Code von Pi.
 
+## Neue Abnahmetests 12 und 13 (👤 je 5 Minuten)
+
+- **Test 12, Provider-Routing:** Nach ein paar Anfragen in OpenRouter unter Activity die Provider der Anfragen ansehen. Erwartung: nur ZDR-Provider. Dass Pi die Vorgaben schickt (`provider: { zdr: true, data_collection: "deny", require_parameters: true }` in jeder Anfrage, auch in Subagents und im Container), ist getestet. Was OpenRouter daraus macht, siehst nur du im Activity-Log.
+- **Test 13, Caching:** In einer Session mit ein paar Turns `/session` öffnen. Erwartung: ab dem zweiten Turn Cache-Reads. Pi schickt dafür pro Session eine feste `x-session-id`, damit OpenRouter beim selben Provider bleibt (getestet). Caching selbst ist bei DeepSeek und Z.ai automatisch.
+
+## Wenn Anfragen scheitern
+
+- **„No endpoints found …“:** `zdr: true` plus `require_parameters: true` lässt für ein Modell keinen Provider übrig. Auf der Modellseite bei OpenRouter nachsehen, welche Provider ZDR und Tool-Calls anbieten. Dann in `agent/models.json` zuerst `require_parameters` entfernen, nur im Notfall `zdr`.
+- **Modell fehlt in `/model`:** Die Liste kommt von OpenRouter (`/models/user`) und spiegelt deine Guardrails. `pi update --models` lädt sie neu.
+- **Keine `order`/`sort`-Einträge in `openRouterRouting`:** Sie umgehen das Sticky Routing und kosten Cache-Treffer. `only` und `ignore` sind unproblematisch.
+
 ## Nach jedem Pi- oder Config-Update
 
 ```bash
@@ -216,14 +236,15 @@ npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung
 docker build -t pecker-nest-pi -f docker/Dockerfile.pi . && npm run e2e:docker
 ```
 
-Danach die Abnahmetests 1–11 in beiden Pilot-Repos wiederholen, wie im Plan vorgesehen.
+Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vorgesehen.
 
 ## Offene Fragen – meine Empfehlung
 
 | # | Frage | Empfehlung |
 | --- | --- | --- |
-| 1 | API-Key oder Abo? | API-Key überall. Der Container braucht ihn sowieso, die Kosten sind pro Aufgabe messbar (wichtig für M5), und die Warnung zu kostenpflichtiger Extra-Nutzung entfällt. |
-| 2 | RAG per stdio oder HTTP? | HTTP. Nur so erreicht der Container den Server ohne Umbau des Images. |
-| 3 | Auto-Retrieval in V1? | Nein. Erst messen, wie zuverlässig das Modell das Such-Tool von sich aus nutzt (Test 6). `kb-autocontext.ts` braucht einen schlanken Such-Endpunkt; den baue ich gern, wenn du ihn nennst. |
-| 4 | Plain Docker oder Docker Sandboxes? | Plain Docker für V1, so ist es gebaut und getestet. Sandboxes lohnen sich, sobald Läufe auf fremdem Code laufen und der Key nicht im Container liegen soll. |
-| 5 | Pilot-Repos? | Deine Entscheidung. Je ein Repo mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |
+| 1 | Datenschutz-Stufe | ZDR global im Konto plus die Vorgaben in `models.json`, so ist es eingerichtet. EU-Routing nur, wenn es eine Vorgabe ist: Es braucht einen Business-Plan und deckt DeepSeek V4 Pro (den Reviewer) derzeit nicht ab. |
+| 2 | Budget des Container-Keys | Klein anfangen, z. B. 10–20 $, und nach den ersten echten Läufen anhand von `/session` bzw. dem Activity-Log nachjustieren. |
+| 3 | RAG per stdio oder HTTP? | HTTP. Nur so erreicht der Container den Server ohne Umbau des Images. |
+| 4 | Auto-Retrieval in V1? | Nein. Erst messen, wie zuverlässig das Modell das Such-Tool von sich aus nutzt (Test 6). `kb-autocontext.ts` braucht einen schlanken Such-Endpunkt; den baue ich gern, wenn du ihn nennst. |
+| 5 | Plain Docker oder Docker Sandboxes? | Plain Docker für V1, so ist es gebaut und getestet. Sandboxes lohnen sich, sobald Läufe auf fremdem Code laufen und der Key nicht im Container liegen soll. |
+| 6 | Pilot-Repos? | Deine Entscheidung. Je ein Repo mit funktionierendem Check-Befehl auf `main` erleichtert Test 5 und 10. |

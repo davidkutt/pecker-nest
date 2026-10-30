@@ -3,7 +3,7 @@
 #   docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
 #
 # Based on the plain-Docker example in Pi's containerization docs, plus Python, uv and pnpm.
-# No credentials are baked in: ANTHROPIC_API_KEY is passed at run time.
+# No credentials are baked in: pi-run.sh passes the OpenRouter key at run time.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
@@ -35,8 +35,9 @@ ENV HOME=/home/node \
   UV_PROJECT_ENVIRONMENT=/home/node/venv
 COPY --chown=node:node . /home/node/dev/pecker-nest
 
-# Link the versioned agent files, install the pinned packages from settings.json, and
-# point MCP servers on the host's localhost at the Docker host instead.
+# Link the versioned agent files (settings, models.json with the OpenRouter routing, prompts),
+# install the pinned packages from settings.json, and point MCP servers on the host's
+# localhost at the Docker host instead.
 RUN /home/node/dev/pecker-nest/scripts/link.sh \
   && rm "$PI_CODING_AGENT_DIR/mcp.json" \
   && sed -e 's#//localhost\b#//host.docker.internal#g' -e 's#//127\.0\.0\.1\b#//host.docker.internal#g' \

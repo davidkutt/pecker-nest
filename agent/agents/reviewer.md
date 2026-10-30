@@ -1,7 +1,7 @@
 ---
 name: reviewer
-description: Read-only review on Opus of the current diff against the task, AGENTS.md, the knowledge base and test coverage. Reports findings with evidence and never edits code.
-model: anthropic/claude-opus-5-5
+description: Read-only review on DeepSeek V4 Pro of the current diff against the task, AGENTS.md, the knowledge base and test coverage. Reports findings with evidence and never edits code.
+model: openrouter/deepseek/deepseek-v4-pro-0813
 thinking: high
 tools: read, grep, find, ls, watchdog_diff, contact_supervisor
 acceptanceRole: read-only
