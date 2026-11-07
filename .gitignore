@@ -10,3 +10,8 @@ runs/
 .env.*
 auth.json
 mcp-auth.json
+
+# Field notes describe private repositories; only the README and the template are versioned.
+field-notes/*
+!field-notes/README.md
+!field-notes/TEMPLATE.md

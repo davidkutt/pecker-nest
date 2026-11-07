@@ -1,7 +1,7 @@
 ---
 name: scout
-description: Fast read-only codebase recon on DeepSeek V4 Flash. Returns the files, symbols, data flow, commands and risks another agent needs before planning or editing.
-model: openrouter/deepseek/deepseek-v4-flash-0731
+description: Fast read-only codebase recon on DeepSeek V4.1 Flash. Returns the files, symbols, data flow, commands and risks another agent needs before planning or editing.
+model: openrouter/deepseek/deepseek-v4.1-flash
 thinking: low
 tools: read, grep, find, ls, bash
 systemPromptMode: replace

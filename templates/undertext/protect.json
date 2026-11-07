@@ -1,0 +1,19 @@
+{
+  "$comment": "pecker-nest safety gate rules for undertext. Copy to .pi/protect.json before nest works on a milestone. Assumes held-out samples live in their own files (evals/samples/test*.jsonl etc.); adjust the globs if they do not.",
+  "read": [
+    "evals/samples/test*.jsonl",
+    "evals/samples/holdout*.jsonl",
+    "evals/samples/gaps*.jsonl"
+  ],
+  "write": [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "docs/milestones/**"
+  ],
+  "commands": [
+    {
+      "pattern": "--split[ =]+(test|holdout|gaps)\\b",
+      "reason": "the held-out eval runs once at the end of a milestone, and David runs it (CLAUDE.md, Evals)"
+    }
+  ]
+}

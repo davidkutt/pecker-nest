@@ -4,3 +4,4 @@ runs
 *.log
 .env
 .env.*
+field-notes
