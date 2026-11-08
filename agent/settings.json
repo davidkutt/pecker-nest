@@ -1,26 +1,33 @@
 {
   "$schema": "https://pi.dev/schemas/settings.schema.json",
-  "defaultProvider": "openrouter",
-  "defaultModel": "z-ai/glm-5.3",
+  "defaultProvider": "router",
+  "defaultModel": "escalate",
   "defaultThinkingLevel": "high",
   "enabledModels": [
-    "router/phased",
-    "openrouter/z-ai/glm-5.3",
-    "openrouter/deepseek/deepseek-v4-pro-0813",
-    "openrouter/deepseek/deepseek-v4-flash-0731"
+    "router/escalate",
+    "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    "openrouter/z-ai/glm-5.3"
   ],
   "showCacheMissNotices": true,
   "defaultTools": ["+grep", "+find", "+ls"],
+  "compaction": {
+    "modelOverrides": {
+      "router/escalate": { "reserveTokens": 800000 },
+      "openrouter/deepseek/deepseek-v4.1-flash-1017": { "reserveTokens": 800000 },
+      "openrouter/z-ai/glm-5.3": { "reserveTokens": 800000 }
+    }
+  },
   "packages": [
     "~/dev/pecker-nest",
-    "npm:pi-subagents@0.83.1"
+    "npm:pi-subagents@0.87.0"
   ],
   "subagents": {
-    "defaultModel": "openrouter/z-ai/glm-5.3",
+    "defaultModel": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "defaultSubagentOnlyExtensions": [
       "~/dev/pecker-nest/extensions/safety-gate.ts"
     ],
     "agentOverrides": {
+      "oracle": { "model": "openrouter/z-ai/glm-5.3" },
       "researcher": { "disabled": true },
       "evidence-auditor": { "disabled": true },
       "claude-code": { "disabled": true },

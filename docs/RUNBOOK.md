@@ -1,28 +1,29 @@
 # Runbook nest V1
 
-Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026 und das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026. `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update. Noch nichts eingerichtet? Dann zuerst der [Setup-Guide](SETUP.md).
+Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026, das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026 und Strategie A vom 07.11.2026 (DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein; Details in [v1-notes.md](v1-notes.md#update-07112026-strategie-a)). `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update. Noch nichts eingerichtet? Dann zuerst der [Setup-Guide](SETUP.md).
 
 **Legende:** ✅ erledigt und getestet · 👤 dein Teil
 
 ## Stand
 
-Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.4.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 11 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
+Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 16 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
 
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
-| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Pilot-Repos klonen, `AGENTS.md` gegenlesen, Test 2 |
-| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5, Vergleich mit pi-project-profile |
+| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 in undertext (M7); die Pilot-Repos bleiben nur noch E2E-Material |
+| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in undertext (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
 | M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Tests 6–7 |
-| M4 Subagents | pi-subagents 0.83.1 geprüft und gepinnt, vier Rollen auf GLM/DeepSeek, review-chain, Safety-Gate in Subagents | Test 8 auf einem Pilot-Branch |
-| M5 Routing | `router/phased`: GLM 5.3 plant auf `max`, baut auf `high`, `/plan` setzt zurück | Test 9, Tokens vergleichen, als Standard setzen |
+| M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
+| M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, GLM für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard` | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen |
+| M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
 | M6 Headless | `Dockerfile.pi`, `pi-run.sh` (eigener Container-Key), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
 | Neu | – | Tests 12 (Provider-Routing) und 13 (Caching) |
 
 ## Voraussetzungen
 
 ```bash
-pi --version          # mindestens 1.4.0, sonst: pi update
+pi --version          # mindestens 1.5.0, sonst: pi update
 node --version        # mindestens 22.18 (nur für npm run check / e2e)
 docker --version      # für M6
 ```
@@ -48,7 +49,7 @@ docker --version      # für M6
 
    Vorhandene Dateien in `~/.pi/agent` werden nicht gelöscht, sondern als `*.bak.<zeitstempel>` beiseitegelegt. Schau in die Backups deiner alten `settings.json` und `models.json`. Übernimm, was du behalten willst, in die Dateien unter `~/dev/pecker-nest/agent/`. `auth.json` und Sessions bleiben unberührt.
 
-4. `pi` starten. Beim ersten Start installiert Pi `pi-subagents@0.83.1` (ein paar Sekunden). Dann anmelden:
+4. `pi` starten. Beim ersten Start installiert Pi `pi-subagents@0.87.0` (ein paar Sekunden). Dann anmelden:
 
    ```text
    /login openrouter
@@ -62,12 +63,12 @@ docker --version      # für M6
    pi list
    # User packages:
    #   ~/dev/pecker-nest
-   #   npm:pi-subagents@0.83.1
+   #   npm:pi-subagents@0.87.0
    ```
 
-   In Pi `/model` öffnen. Unter `openrouter` stehen `z-ai/glm-5.3`, `deepseek/deepseek-v4-pro-0813` und `deepseek/deepseek-v4-flash-0731`, dazu `router/phased`. Mit Ctrl+P schaltest du genau diese vier durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
+   In Pi `/model` öffnen. Ausgewählt ist `router/escalate`; unter `openrouter` stehen `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`. Mit Ctrl+P schaltest du genau diese drei durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
 
-   Fehlt eines der drei Modelle, filtert es dein Konto heraus, meist wegen ZDR. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
+   Fehlt eines der beiden Modelle, filtert es dein Konto heraus, meist wegen ZDR. Am ehesten trifft das `deepseek/deepseek-v4.1-flash-1017`: Diesen Stand bedienen weniger Provider als den vom September. Notfalls in `extensions/lib/router-logic.ts`, `agent/settings.json` und den Agenten `scout`/`worker` auf `deepseek/deepseek-v4.1-flash` zurückgehen. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
 
    Abweichung vom Plan: `pi list` zeigt zwei Einträge, nicht einen. pi-subagents ist schon gepinnt.
 
@@ -163,35 +164,42 @@ Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Aut
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
-Schon erledigt: pi-subagents ist geprüft und auf 0.83.1 gepinnt (Befund in [v1-notes.md](v1-notes.md#pi-subagents)). Die vier Rollen liegen in `agent/agents/`. Nicht genutzte Builtins (externe CLIs, Web-Recherche) sind deaktiviert.
+Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-notes.md](v1-notes.md#pi-subagents)). Die vier Rollen liegen in `agent/agents/`. Nicht genutzte Builtins (externe CLIs, Web-Recherche) sind deaktiviert.
 
-1. Auf einem Branch eines Pilot-Repos einen kleinen Bug einbauen und committen.
+1. Am ersten echten Feature in undertext M1 (siehe M7), oder auf einem Branch einen kleinen Bug einbauen und committen.
 2. **Test 8**, in der TUI:
 
    ```text
    /prompt-workflow review-chain <Aufgabe, z. B. "Füge X hinzu">
    ```
 
-   Die Kette läuft `scout` (DeepSeek V4 Flash, `low`) → `planner` (GLM 5.3, `max`) → `worker` (GLM 5.3, `high`) → `reviewer` (DeepSeek V4 Pro, `high`). Prüfe:
+   Die Kette läuft `scout` (DeepSeek V4.1 Flash, `low`) → `planner` (GLM 5.3, `max`) → `worker` (DeepSeek V4.1 Flash, `high`) → `reviewer` (GLM 5.3, `high`). Prüfe:
 
-   - Jeder Agent auf seinem Modell: `/subagents-fleet` öffnen oder den Transcript des Laufs ansehen.
-   - Der DeepSeek-Reviewer findet den eingebauten Bug im GLM-Code und ändert keinen Code. Er hat keine Schreib-Tools, nicht einmal `bash`.
+   - Jeder Agent auf seinem Modell: `/subagents-fleet` öffnen, den Transcript des Laufs ansehen oder den Session-Report (Abschnitt „By agent“).
+   - Der GLM-Reviewer findet Fehler im Flash-Code und ändert keinen Code. Er hat keine Schreib-Tools, nicht einmal `bash`.
 
    Headless (`pi -p`) funktioniert `/prompt-workflow` nicht (Fehler „ctx is stale“ aus pi-subagents). Dort `/review-chain <Aufgabe>` nehmen. Dann startet das Modell dieselbe Kette als Workflow-Skript.
 
 3. Bei Problemen: `/subagents-doctor`.
 
-## M5 – Modell-Routing (👤 eine Aufgabe, ca. 30 Minuten)
+## M5 – Modell-Routing (👤 in echter Arbeit)
 
-Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max` und baut nach der ersten Code-Änderung auf `high`.
+`router/escalate` ist das Standardmodell. Er wählt je Anfrage das Modell:
 
-1. In Pi `/model router/phased`.
-2. **Test 9:** Eine Aufgabe von Plan bis Umsetzung. Die Fußzeile zeigt zuerst etwa `phased • high → z-ai/glm-5.3 • max`, nach der ersten Code-Änderung `… • high`. Weil Modell und Session-ID gleich bleiben, meldet `showCacheMissNotices` beim Wechsel keinen zusätzlichen Cache-Miss.
-   - `PLAN.md` und andere Markdown-Dateien beenden die Planungsphase nicht.
-   - `/plan` beginnt eine neue Aufgabe wieder auf `max`.
-   - Die gewählte Stufe des Routers (`high`) zählt nicht; die Phase bestimmt die Stufe.
-3. Tokens vergleichen: `/session` zeigt Tokens und Kosten. Dieselbe Aufgabe einmal mit `/model openrouter/z-ai/glm-5.3` und `/thinking max` wiederholen. Der Router lohnt sich, wenn er weniger Tokens oder Wartezeit braucht. Bringt er wenig, lass M5 weg und stell die Stufe bei Bedarf per `/thinking` um.
-4. Ist der Router stabil, die Auswahl aus Schritt 1 als Standard behalten: Pi hat `router/phased` in `agent/settings.json` geschrieben. Committe das.
+| Situation | Modell |
+| --- | --- |
+| Jeder Prompt, den du tippst | DeepSeek V4.1 Flash, `high` |
+| `/plan …` samt seinen Tool-Aufrufen | GLM 5.3, `max` |
+| Quality Gate in Reparaturrunde 2 noch rot | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
+| Dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei oder fünf fehlgeschlagene Tool-Aufrufe in Folge | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
+| `/hard` | GLM 5.3, `high`, für alle Prompts bis `/flash` |
+| Bilder im Gespräch, oder GLM fehlt in deiner Modellliste | immer Flash (GLM 5.3 liest keine Bilder) |
+
+Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nach Fehlern bleiben auf dem Modell, das scheiterte. Jeder Wechsel kostet einen Prompt-Cache-Miss.
+
+1. **Test 9:** Eine Aufgabe von `/plan` bis Umsetzung. Die Fußzeile zeigt erst `escalate • high → z-ai/glm-5.3 • max`, beim nächsten Prompt `… → deepseek/deepseek-v4.1-flash-1017 • high`. Jeder Wechsel erscheint als Hinweis `router: …`.
+2. Nach ein paar Sessions die Session-Reports ansehen (Abschnitt „Router“ und „Tools“): Wie oft musste GLM einspringen, und warum? Springt GLM zu oft ein, ist Flash für die Aufgabe zu schwach (dann `/hard` für solche Aufgaben). Springt GLM nie ein, obwohl Flash hängt, sind die Schwellen zu hoch. Die Schwellen stehen in `extensions/lib/router-logic.ts`.
+3. Ohne Router arbeiten: `/model openrouter/deepseek/deepseek-v4.1-flash-1017` oder `/model openrouter/z-ai/glm-5.3`. Pi schreibt die Auswahl in `agent/settings.json` (Symlink); `git checkout agent/settings.json` stellt den Standard wieder her.
 
 ## M6 – Headless im Container (👤 ca. 30 Minuten)
 
@@ -224,6 +232,35 @@ Der Router wechselt nicht das Modell, nur die Denkstufe: GLM 5.3 plant auf `max`
 
 Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, sonst der Exit-Code von Pi.
 
+## M7 – Dogfooding mit Claude: undertext M1 (👤)
+
+Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pecker-grove M3c.2. pecker-beak bleibt bei Claude Code (sein `AGENTS.md` und `.pi/settings.json` sind für den Betrieb von Beak, nicht für den Bau). pecker-nest selbst wird nie mit nest gebaut: Das Safety-Gate sperrt Schreibzugriffe auf dieses Repo und auf Pis Agent-Verzeichnis.
+
+**Einmalig:**
+
+1. `~/dev/pecker-nest/scripts/link.sh --claude` verlinkt zusätzlich die Claude-Code-Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/`.
+2. In undertext vor der ersten nest-Session die Schutzregeln anlegen:
+
+   ```bash
+   mkdir -p ~/dev/undertext/.pi
+   cp ~/dev/pecker-nest/templates/undertext/protect.json ~/dev/undertext/.pi/protect.json
+   ```
+
+   Sie verbieten dem Agenten, die zurückgehaltenen Splits zu lesen oder zu schreiben (`evals/samples/test*.jsonl`, `holdout*`, `gaps*`), `CLAUDE.md` und die Milestone-Briefs zu ändern und `--split test|holdout|gaps` auszuführen. Die Globs setzen voraus, dass der Test-Split in einer eigenen Datei liegt; sonst anpassen. Die Datei gehört in den ersten M1-PR.
+3. Nach M1-Schritt 1 (pnpm-Workspace steht) das Gate anlegen: `cp ~/dev/pecker-nest/templates/undertext/gate.json ~/dev/undertext/.pi/gate.json` (`pnpm lint && pnpm test`). Vorher würde jeder Gate-Lauf an fehlenden Skripten scheitern. Der Agent darf `.pi/` nicht schreiben; das machst du.
+4. In undertext `pi` starten und `/trust`.
+
+**Jede Session:**
+
+1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff.
+2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären.
+3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
+4. Ging etwas schief: `/rewind` in Pi stellt den Arbeitsstand vor einem deiner Prompts wieder her.
+
+Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
+
+**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten.
+
 ## Neue Abnahmetests 12 und 13 (👤 je 5 Minuten)
 
 - **Test 12, Provider-Routing:** Nach ein paar Anfragen in OpenRouter unter Activity die Provider der Anfragen ansehen. Erwartung: nur ZDR-Provider. Dass Pi die Vorgaben schickt (`provider: { zdr: true, data_collection: "deny", require_parameters: true }` in jeder Anfrage, auch in Subagents und im Container), ist getestet. Was OpenRouter daraus macht, siehst nur du im Activity-Log.
@@ -243,7 +280,7 @@ npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung
 docker build -t pecker-nest-pi -f docker/Dockerfile.pi . && npm run e2e:docker
 ```
 
-Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vorgesehen.
+Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
 
 ## Entschieden
 
@@ -255,5 +292,9 @@ Danach die Abnahmetests 1–13 in beiden Pilot-Repos wiederholen, wie im Plan vo
 | 30.10.2026 | Auto-Retrieval | Nicht in V1. `kb-autocontext.ts` wird nicht gebaut. |
 | 30.10.2026 | Container-Variante | Plain Docker, wie gebaut und getestet. |
 | 30.10.2026 | Pilot-Repos | `davidkutt/pecker-api` (TypeScript) und `davidkutt/pecker-ml` (Python), mit Minimal-Gerüst auf `main`. |
+| 07.11.2026 | Modellstrategie | Strategie A: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (`router/escalate`). DeepSeek V4 Pro entfällt. |
+| 07.11.2026 | Testprojekte | Echte Arbeit statt Pilot-Repos: undertext M1, danach pecker-grove M3c.2. pecker-beak bleibt bei Claude Code. Kein synthetischer Benchmark. |
+| 07.11.2026 | undertext-Code über OpenRouter | Erlaubt, mit ZDR-Routing wie bisher. |
+| 07.11.2026 | Begleitung | Claude Code beobachtet jede nest-Session (`/nest-supervise`) und schreibt danach eine Übergabe (`/nest-handoff`) für den Planungschat. |
 
 Alle offenen Fragen des Plans sind damit entschieden.

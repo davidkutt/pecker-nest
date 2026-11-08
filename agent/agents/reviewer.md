@@ -1,7 +1,7 @@
 ---
 name: reviewer
-description: Read-only review on DeepSeek V4 Pro of the current diff against the task, AGENTS.md, the knowledge base and test coverage. Reports findings with evidence and never edits code.
-model: openrouter/deepseek/deepseek-v4-pro-0813
+description: Read-only review on GLM 5.3 of the current diff against the task, AGENTS.md, the knowledge base and test coverage. Reports findings with evidence and never edits code.
+model: openrouter/z-ai/glm-5.3
 thinking: high
 tools: read, grep, find, ls, watchdog_diff, contact_supervisor
 acceptanceRole: read-only

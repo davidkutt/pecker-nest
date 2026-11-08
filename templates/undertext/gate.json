@@ -1,0 +1,5 @@
+{
+  "command": "pnpm lint && pnpm test",
+  "maxRepairRounds": 2,
+  "timeoutSeconds": 600
+}

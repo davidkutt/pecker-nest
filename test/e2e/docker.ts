@@ -77,7 +77,7 @@ try {
 	assert.ok(refresh, "the model list refresh ran before Pi");
 	if (refresh[1] !== "0") console.log(`note: model refresh exited ${refresh[1]} (no internet in the container?); Pi used its bundled catalog`);
 	assert.match(stderrLog, /=== gate exit: 0/);
-	assert.ok(mock.requests.length > 0 && mock.requests.every((request) => request.model === "z-ai/glm-5.3"));
+	assert.ok(mock.requests.length > 0 && mock.requests.every((request) => request.model === "deepseek/deepseek-v4.1-flash-1017"), "router/escalate runs Flash; one repair round does not call in GLM");
 	assert.ok(
 		mock.requests.every((request) => JSON.stringify(request.routing) === JSON.stringify(modelsJson.providers.openrouter.compat.openRouterRouting)),
 		"the container sends the routing preferences from models.json",

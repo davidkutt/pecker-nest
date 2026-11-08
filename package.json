@@ -11,7 +11,10 @@
     "extensions": [
       "./extensions/safety-gate.ts",
       "./extensions/quality-gate.ts",
-      "./extensions/router.ts"
+      "./extensions/router.ts",
+      "./extensions/checkpoint.ts",
+      "./extensions/vendor/todo.ts",
+      "./extensions/vendor/questionnaire.ts"
     ],
     "skills": [
       "./skills"
@@ -37,8 +40,8 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@types/node": "24.10.1",
     "typescript": "5.9.3"
   },

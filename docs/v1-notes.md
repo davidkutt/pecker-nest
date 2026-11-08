@@ -1,6 +1,38 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 30.10.2026 (nach dem Update „GLM 5.3 & DeepSeek über OpenRouter“), Pi 1.4.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus dem npm-Paket. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 07.11.2026 (Strategie A), Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“) steht unten; was das Update vom 07.11. daran ändert, steht im ersten Abschnitt. Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 07.11.2026: Strategie A
+
+Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (Strategie A). Getestet wird an echter Arbeit (undertext M1, danach pecker-grove), nicht an den Pilot-Repos; Claude Code beobachtet und schreibt nach jeder Session eine Übergabe.
+
+**Warum die Modelle wechseln:**
+- DeepSeek hat am 10.09. V4.1 Flash veröffentlicht und leitet seit dem 14.09. Anfragen an V4 Pro auf V4.1 Flash um. Der bisherige Reviewer (V4 Pro 0813) fällt weg. V4.1 Flash nimmt Bilder an, GLM 5.3 nicht.
+- nest nutzt den Stand vom 17.10. (`deepseek/deepseek-v4.1-flash-1017`, entschieden am 08.11.). Bei OpenRouter ist `deepseek/deepseek-v4.1-flash` ohne Datum der Stand vom 10.09., kein Alias auf den neuesten. Laut DeepSeek ist 1017 bei Coding und Agent-Aufgaben besser und schreibt kürzere Antworten, zum selben Preis. Dafür bedienen ihn bei OpenRouter weniger Provider (12 statt rund 38), deshalb nach dem Wechsel prüfen, ob mit ZDR noch einer übrig bleibt.
+- GLM 5.3 kostet bei OpenRouter etwa 1,40 / 4,40 / 0,26 USD (Input / Output / Cache-Read je Million Tokens), nicht 0,079 / 1,40 / 0,078 wie im Pi-Katalog 1.4.0. V4.1 Flash liegt je nach Provider bei etwa 0,15–0,30 / 0,60–1,20 / 0,003–0,03. Bei Coding-Agents dominiert der Cache-Read, deshalb ist eine lange Session auf Flash grob 10- bis 40-mal billiger.
+
+**Was sich geändert hat:**
+
+| Bereich | Vorher (30.10.) | Jetzt (07.11.) |
+| --- | --- | --- |
+| Pi / pi-subagents | 1.4.0 / 0.83.1 | 1.5.0 / 0.87.0 (Prüfung unten) |
+| Flash-Modell | `deepseek/deepseek-v4-flash-0731` | `deepseek/deepseek-v4.1-flash-1017` |
+| Standardmodell | `openrouter/z-ai/glm-5.3` (`high`) | `router/escalate` |
+| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. |
+| Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` |
+| Builtins | `oracle`, `delegate` auf GLM | `delegate` auf Flash (`subagents.defaultModel`), `oracle` auf GLM |
+| Kompaktierung | bei ~1M Kontext (Standard `reserveTokens` 16k) | bei ~250k: `compaction.modelOverrides` mit `reserveTokens: 800000` für Router, Flash und GLM. Andere Modelle behalten den Standard. |
+| Safety Gate | feste Regeln | zusätzlich: `.pi/` ist für den Agenten tabu, ebenso dieses Repo und Pis Agent-Verzeichnis; `.pi/protect.json` je Repo (Pfade nicht schreiben, Pfade nicht lesen, Befehle nicht ausführen; Zeilen mit geschützten Pfaden werden aus grep-, find-, ls- und bash-Ausgaben entfernt). Eine kaputte `protect.json` sperrt alle Schreibzugriffe und Befehle. |
+| Neu | – | Checkpoints vor jedem Prompt (`/rewind`, `/checkpoints`), `todo`- und `questionnaire`-Tool (unverändert aus Pis Beispielen), Skill `grill-me` (nur manuell), `scripts/session-report.ts`, Claude-Code-Skills `/nest-supervise` und `/nest-handoff`, `field-notes/` (lokal) |
+
+**Befunde aus dem Umbau:**
+- **Pis `git-checkpoint.ts`-Beispiel taugt nicht als Undo.** Es hält Checkpoints nur im Speicher, verwirft sie nach jedem Lauf und übergeht ungetrackte Dateien. `extensions/checkpoint.ts` ist deshalb eigener Code: temporärer Index, Commit-Objekt, Ref unter `refs/nest/checkpoints/`. Index, Branch und Stash bleiben unberührt, ignorierte Dateien werden weder gesichert noch gelöscht.
+- **Subagents laden die Package-Extensions.** In den E2E-Läufen mit pi-subagents 0.87.0 haben scout, planner und reviewer die Extensions dieses Packages geladen (Checkpoint-Einträge in ihren Sessions). Das Safety-Gate läuft dort also doppelt (Package und `defaultSubagentOnlyExtensions`); das schadet nicht. Der Session-Report zählt Checkpoints und Prompts nur aus der Hauptsession.
+- **Die vendorten Beispiele bestehen den strengen Typecheck nicht** (`StringEnum` in `todo.ts`). Zur Laufzeit sind sie in Ordnung; `extensions/vendor/` ist vom `tsc`-Lauf ausgenommen, die E2E-Tests laden sie.
+- **Kompaktierung:** Ein globales `reserveTokens: 800000` würde bei jedem Modell mit kleinerem Fenster sofort und dauernd kompaktieren. Deshalb nur per `modelOverrides`.
+- **`/hard` sendet keine Nachricht.** Eine von einer Extension gesendete Nachricht würde den `/plan`-Modus des Safety-Gates erben. `/hard` und `/flash` schalten deshalb nur um; den Prompt tippst du danach.
+
+**Nicht getestet** (wie bisher): echte Modelle, was OpenRouter mit ZDR für V4.1 Flash routet, interaktive TUI (Benachrichtigungen des Routers, `/rewind`-Dialog). Die Logik von `/rewind` ist mit echtem git unit-getestet, der Dialog nicht.
 
 ## Abweichungen vom Plan
 
@@ -35,19 +67,20 @@ Mit OpenRouter bestätigt (11 Szenarien plus Container-Lauf):
 - **compat wird zusammengeführt:** Pi mischt das `compat` aus `models.json` Feld für Feld in das jedes Modells. Die eingebauten Werte (`thinkingFormat: openrouter`, Session-Header) bleiben erhalten.
 - **Sticky Routing:** Pi schickt pro Session eine feste `x-session-id`, auch über den Phasenwechsel des Routers hinweg.
 - **Router:** Alle Anfragen gehen an GLM 5.3. Gemessen: `max`, `max`, nach der ersten Code-Änderung `high`. Ein neuer Prompt bleibt auf `high`, `/plan` geht zurück auf `max`.
-- **Subagents:** `scout`, `planner`, `worker` und `reviewer` laufen auf DeepSeek V4 Flash (`low`), GLM 5.3 (`max`), GLM 5.3 (`high`) und DeepSeek V4 Pro (`high`). pi-subagents löst `openrouter/z-ai/glm-5.3:max` korrekt auf. Der Reviewer hat weder `edit` noch `write` noch `bash`. Im Worker blockiert das Safety-Gate `rm -rf`.
+- **Subagents (Stand 30.10.; seit 07.11. siehe oben):** `scout`, `planner`, `worker` und `reviewer` laufen auf DeepSeek V4 Flash (`low`), GLM 5.3 (`max`), GLM 5.3 (`high`) und DeepSeek V4 Pro (`high`). pi-subagents löst `openrouter/z-ai/glm-5.3:max` korrekt auf. Der Reviewer hat weder `edit` noch `write` noch `bash`. Im Worker blockiert das Safety-Gate `rm -rf`.
 
 ## Modelle
 
-Laut Pi-Katalog 1.4.0 (Provider `openrouter`, alle 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys.
+Stand 07.11. (beide 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read, wie OpenRouter sie im November listet; der Pi-Katalog schätzt anders). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys, und der Session-Report rechnet mit den Kosten, die OpenRouter meldet.
 
-| Modell | ID | Preis | Denkstufen | Rolle |
-| --- | --- | --- | --- | --- |
-| GLM 5.3 | `z-ai/glm-5.3` | 0,079 / 1,40 / 0,078 | `low`, `high`, `max` (nicht abschaltbar) | Hauptsession, Router, `planner` (`max`), `worker` (`high`) |
-| DeepSeek V4 Pro 0813 | `deepseek/deepseek-v4-pro-0813` | 0,66 / 1,98 / 0,022 | `off`, `low`, `high`, `max` | `reviewer` (`high`) |
-| DeepSeek V4 Flash 0731 | `deepseek/deepseek-v4-flash-0731` | 0,044 / 0,133 / 0,0014 | `off`, `low`, `high`, `max` | `scout` (`low`) |
+| Modell | ID | Preis (OpenRouter) | Denkstufen | Bilder | Rolle |
+| --- | --- | --- | --- | --- | --- |
+| DeepSeek V4.1 Flash (Stand 17.10.) | `deepseek/deepseek-v4.1-flash-1017` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
+| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`), `planner` (`max`), `reviewer` (`high`), `oracle` |
 
-Der Katalog nennt für DeepSeek V4 Pro einen anderen Preis als dein Update (ab 0,10 / 8,00). Der Preis hängt am Upstream-Provider; maßgeblich ist, was OpenRouter mit ZDR tatsächlich routet (Test 12).
+Neue Modelle zum Beobachten (Stand 08.11.): Kimi K3.1 Pro (`moonshotai/kimi-k3.1-pro`, 2 / 10 / 0,20, liest Bilder) als möglicher Ersatz für GLM bei Eskalation oder Review, an zwei, drei M1-Schritten gegen GLM testen; DeepSeek V4.1 Pro, sobald es erscheint. Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
+
+Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4.1 Flash um) und V4 Flash 0731 (bei DeepSeek selbst abgeschaltet; bei Drittanbietern noch erhältlich und mit ca. 0,04 / 0,08 billiger, aber ohne Bilder). Maßgeblich ist, was OpenRouter mit ZDR tatsächlich routet (Test 12).
 
 ## OpenRouter-Routing
 
@@ -76,7 +109,9 @@ Der Katalog nennt für DeepSeek V4 Pro einen anderen Preis als dein Update (ab 0
 
 ## pi-subagents
 
-Geprüft wurde Version 0.83.1 (npm, Quelle `github.com/nicobailon/pi-subagents`, veröffentlicht am 28.10.2026 per GitHub Actions). Kein vollständiges Audit des 4-MB-Bundles, sondern eine gezielte Prüfung:
+**Update 07.11.: 0.87.0.** Gegenüber 0.83.1 geprüft: weiterhin keine `scripts` in `package.json`, gleiche Laufzeit-Abhängigkeiten in gleichen Versionen, keine neuen fest eingebauten URLs, keine neuen gestarteten Programme (Vergleich der Bundles). Veröffentlicht mit npm-Provenance (SLSA). Gründe für das Update: 0.84.0 schließt eine Lücke, durch die Workflow-Skripte (die `/review-chain` nutzt) aus ihrer Sandbox auf den Pi-Prozess zugreifen konnten; 0.85.0 macht jeden Kindstart als `subagent_launch`-Tool-Aufruf für Gates sichtbar; 0.87.0 lässt ein Modell `provider/id` nur noch beim genannten Provider laufen. 0.87.0 ist vom 07.11. und damit sehr frisch; die E2E-Tests laufen damit grün.
+
+Geprüft am 30.10. wurde Version 0.83.1 (npm, Quelle `github.com/nicobailon/pi-subagents`, veröffentlicht am 28.10.2026 per GitHub Actions). Kein vollständiges Audit des 4-MB-Bundles, sondern eine gezielte Prüfung:
 
 - **Keine Install-Hooks:** keine `scripts` in `package.json`. `install.mjs` läuft nur bei `npx pi-subagents`, nicht bei `pi install`.
 - **Netzwerk:** keine fest eingebauten Endpunkte außer GitHub-Links. Ein Gist wird nur mit `share: true` angelegt (über `gh gist create`).
@@ -85,9 +120,9 @@ Geprüft wurde Version 0.83.1 (npm, Quelle `github.com/nicobailon/pi-subagents`,
   - nur wenn diese Profile gewählt werden: externe CLIs (`claude`, `codex`, `cursor-agent`). Sie sind deaktiviert.
 - **Peer-Dependencies:** sauber deklariert; Laufzeit-Abhängigkeiten sind gepinnt.
 
-Deaktiviert in `settings.json`: `researcher` und `evidence-auditor` (bräuchten `pi-web-access`) sowie alle sechs Profile für externe CLIs. `oracle` und `delegate` bleiben und laufen standardmäßig auf GLM 5.3 (`subagents.defaultModel`), weil Kinder den virtuellen Router nicht laden.
+Deaktiviert in `settings.json`: `researcher` und `evidence-auditor` (bräuchten `pi-web-access`) sowie alle sechs Profile für externe CLIs. `delegate` läuft auf DeepSeek V4.1 Flash (`subagents.defaultModel`), `oracle` auf GLM 5.3 (`agentOverrides`), weil Kinder den virtuellen Router nicht nutzen können.
 
-Update-Weg: Version in `agent/settings.json` anheben, `npm run e2e` laufen lassen, dann committen. Seit dem 30.10. gibt es 0.84.0; sie ist nicht geprüft, gepinnt bleibt 0.83.1.
+Update-Weg: Version in `agent/settings.json` anheben, `npm run e2e` laufen lassen, dann committen.
 
 ## pi-project-profile
 

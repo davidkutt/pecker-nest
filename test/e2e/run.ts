@@ -2,12 +2,13 @@
  * End-to-end checks: a real Pi loads this package and talks to a scripted mock of the
  * OpenRouter API. No API key, no token cost. Covers the default model and OpenRouter routing
  * preferences, the safety gate, the quality gate's repair loop, /plan, project trust, the
- * router's phases, the safety gate inside a subagent, and the review chain's model assignment.
+ * escalation router, the safety gate inside a subagent, and the review chain's model assignment.
  *
  *   npm run e2e                 # uses `pi` from PATH
  *   PI_BIN=/path/to/pi npm run e2e
  *   E2E_VERBOSE=1 npm run e2e router   # one scenario, with Pi's stderr
  *   E2E_USE_LINK=1 npm run e2e         # use scripts/link.sh, needs this repo at ~/dev/pecker-nest
+ *   E2E_KEEP=1 npm run e2e             # keep the temporary repos and sessions
  *
  * Needs network once per run to install pi-subagents into a temporary agent directory.
  */
@@ -23,8 +24,7 @@ import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
 const GLM = "z-ai/glm-5.3";
-const DS_PRO = "deepseek/deepseek-v4-pro-0813";
-const DS_FLASH = "deepseek/deepseek-v4-flash-0731";
+const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 const ROUTING = { zdr: true, data_collection: "deny", require_parameters: true };
 const PI_ENV = { OPENROUTER_API_KEY: "sk-or-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" };
 const root = mkdtempSync(join(tmpdir(), "nest-e2e-"));
@@ -63,10 +63,27 @@ function respond(request: MockRequest): Reply {
 			return step === 0 ? tool("write", { path: "value.txt", content: "bad\n" }) : say("done");
 		case "router":
 			return [tool("bash", { command: "ls" }), tool("write", { path: "src/a.ts", content: "export const a = 1;\n" }), say("built")][step] ?? say("built");
-		case "router-more":
-			return say("still building");
 		case "router-plan":
-			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Next\n" }) : say("planned again");
+			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Next\n" }) : say("planned");
+		case "router-back":
+			return say("back to building");
+		case "router-loop":
+			// The same failing command three times, then whatever the next model says.
+			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
+		case "router-hard":
+		case "router-soft":
+			return say(`answered ${request.scenario}`);
+		case "protect":
+			return [
+				tool("bash", { command: "cat evals/holdout.jsonl" }),
+				tool("bash", { command: "grep -rn TOPSECRET ." }),
+				tool("write", { path: "evals/test.jsonl", content: "{}\n" }),
+				tool("write", { path: ".pi/gate.json", content: '{"command":"true"}' }),
+				tool("bash", { command: "node eval.js --split test" }),
+				say("done"),
+			][step] ?? say("done");
+		case "grill":
+			return say("❓ **Q1** - **Scope**: …");
 		case "subagent":
 			return delegate(request, tool("subagent", { agent: "worker", task: "[scenario:child] Delete the build directory.", async: false }));
 		case "chain-model":
@@ -213,7 +230,7 @@ function assertChain(scenario: string) {
 	}
 	assert.deepEqual([...byRole.keys()], ["scout", "planner", "worker", "reviewer"]);
 	const assigned = [...byRole.values()].map((request) => `${request.model}:${request.effort}`);
-	assert.deepEqual(assigned, [`${DS_FLASH}:low`, `${GLM}:max`, `${GLM}:high`, `${DS_PRO}:high`]);
+	assert.deepEqual(assigned, [`${FLASH}:low`, `${GLM}:max`, `${FLASH}:high`, `${GLM}:high`]);
 	for (const request of byRole.values()) assert.deepEqual(request.routing, ROUTING, "subagents use the same provider routing");
 	const reviewerTools = byRole.get("reviewer")!.toolNames;
 	for (const writer of ["edit", "write", "bash"]) assert.ok(!reviewerTools.includes(writer), `reviewer has ${writer}`);
@@ -229,7 +246,7 @@ function requestsFor(scenario: string) {
 
 const scenarios: [string, () => Promise<void>][] = [
 	[
-		"default session runs GLM 5.3 at high with OpenRouter routing and session affinity (tests 1, 12)",
+		"default session runs router/escalate on DeepSeek V4.1 Flash at high with OpenRouter routing and session affinity (tests 1, 12)",
 		async () => {
 			const repo = makeRepo("defaults", {}, false);
 			const probe = join(root, "probe-scope.ts");
@@ -242,16 +259,19 @@ const scenarios: [string, () => Promise<void>][] = [
 			const requests = requestsFor("defaults");
 			assert.equal(requests.length, 2);
 			for (const request of requests) {
-				assert.equal(request.model, GLM);
+				assert.equal(request.model, FLASH);
 				assert.equal(request.effort, "high");
 				assert.deepEqual(request.routing, ROUTING, "models.json routing reaches OpenRouter as the provider field");
 			}
 			assert.ok(requests[0].sessionId, "x-session-id is sent for sticky provider routing");
+			for (const name of ["todo", "questionnaire"]) assert.ok(requests[0].toolNames.includes(name), `the vendored ${name} tool is loaded`);
+			assert.match(requests[0].system, /testing-ts/, "package skills are listed");
+			assert.doesNotMatch(requests[0].system, /grill-me/, "grill-me is manual only");
 			assert.equal(requests[1].sessionId, requests[0].sessionId, "one session id per session");
 			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
 			assert.deepEqual(
 				scoped,
-				["router/phased", `openrouter/${GLM}`, `openrouter/${DS_PRO}`, `openrouter/${DS_FLASH}`],
+				["router/escalate", `openrouter/${FLASH}`, `openrouter/${GLM}`],
 				"enabledModels resolves the IDs with slashes, so Ctrl+P cycles exactly these",
 			);
 		},
@@ -331,36 +351,116 @@ const scenarios: [string, () => Promise<void>][] = [
 		},
 	],
 	[
-		"router plans on GLM max, builds on GLM high after the first code edit, and /plan returns to max (test 9)",
+		"router builds on Flash, plans on GLM max, and returns to Flash on the next prompt (test 9)",
 		async () => {
 			const repo = makeRepo("router", {}, false);
-			const run = await runPi(repo, [
-				"-p",
-				"--model",
-				"router/phased",
-				"[scenario:router] add a",
-				"[scenario:router-more] and more",
-				"/plan next step [scenario:router-plan]",
-			]);
+			const run = await runPi(repo, ["-p", "[scenario:router] add a", "/plan next step [scenario:router-plan]", "[scenario:router-back] go on"]);
 			assert.equal(run.code, 0, run.stderr);
-			const efforts = (scenario: string) => requestsFor(scenario).map((request) => request.effort);
-			assert.ok(mock.requests.filter((request) => request.scenario?.startsWith("router")).every((request) => request.model === GLM));
-			assert.deepEqual(efforts("router"), ["max", "max", "high"]);
-			assert.deepEqual(efforts("router-more"), ["high"]);
-			assert.deepEqual(efforts("router-plan"), ["max", "max"], "writing PLAN.md stays in the plan phase");
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("router"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`], "a code edit does not change the tier");
+			assert.deepEqual(routed("router-plan"), [`${GLM}:max`, `${GLM}:max`], "/plan runs on GLM at max, including its tool calls");
+			assert.deepEqual(routed("router-back"), [`${FLASH}:high`]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(plan\)/);
+			assert.match(run.stderr, /\[router\] back on DeepSeek V4\.1 Flash/);
 			const sessions = new Set(mock.requests.filter((request) => request.scenario?.startsWith("router")).map((request) => request.sessionId));
-			assert.equal(sessions.size, 1, "the effort switch keeps the session id, so OpenRouter stays on the same provider");
+			assert.equal(sessions.size, 1, "switching models keeps the session id");
 		},
 	],
 	[
-		"a worker subagent runs on GLM 5.3 at high with the safety gate loaded",
+		"router calls in GLM when the quality gate is still red at repair round 2",
+		async () => {
+			const repo = makeRepo("router-gate", {});
+			const run = await runPi(repo, ["-p", "--approve", "[scenario:gate-exhaust] make value ok"]);
+			assert.equal(run.code, 0, run.stderr);
+			const requests = requestsFor("gate-exhaust").filter((request) => request.sessionId === requestsFor("gate-exhaust").at(-1)?.sessionId);
+			const round2 = requests.findIndex((request) => request.lastUserText.includes("Repair round 2 of 2"));
+			assert.ok(round2 > 0, "the gate reached repair round 2");
+			assert.ok(requests.slice(0, round2).every((request) => request.model === FLASH), "Flash until round 2");
+			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "high"), "GLM high from round 2");
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(gate: quality gate still red at repair round 2\)/);
+			// The session report reads the same session back.
+			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
+				encoding: "utf-8",
+				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+			});
+			assert.equal(report.status, 0, report.stderr);
+			const { stats } = JSON.parse(report.stdout);
+			assert.deepEqual(stats.escalations, { gate: 1 });
+			assert.equal(stats.gate.repairs, 2);
+			assert.equal(stats.gate.handedBack, 1);
+			assert.ok(stats.models[FLASH].requests > 0 && stats.models[GLM].requests > 0);
+			assert.equal(stats.checkpoints, 1);
+		},
+	],
+	[
+		"router calls in GLM after the same tool call three times in a row",
+		async () => {
+			const repo = makeRepo("router-loop", {}, false);
+			const run = await runPi(repo, ["-p", "[scenario:router-loop] run the script"]);
+			assert.equal(run.code, 0, run.stderr);
+			const models = requestsFor("router-loop").map((request) => request.model);
+			assert.deepEqual(models, [FLASH, FLASH, FLASH, GLM]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(loop: the same bash call 3 times in a row\)/);
+		},
+	],
+	[
+		"/hard keeps GLM on across prompts until /flash",
+		async () => {
+			const repo = makeRepo("router-hard", {}, false);
+			const run = await runPi(repo, ["-p", "/hard", "[scenario:router-hard] one", "[scenario:router-hard] two", "/flash", "[scenario:router-soft] three"]);
+			assert.equal(run.code, 0, run.stderr);
+			assert.deepEqual(requestsFor("router-hard").map((request) => request.model), [GLM, GLM]);
+			assert.deepEqual(requestsFor("router-soft").map((request) => request.model), [FLASH]);
+		},
+	],
+	[
+		"safety gate applies .pi/protect.json: read- and write-protected files, commands, output filter, .pi/ itself",
+		async () => {
+			const repo = makeRepo("protect", {
+				"evals/holdout.jsonl": '{"id":"h-1","content":"TOPSECRET payload"}\n',
+				"evals/test.jsonl": '{"id":"t-1"}\n',
+				"evals/dev.jsonl": '{"id":"d-1","content":"TOPSECRET in dev is fine"}\n',
+				"eval.js": "console.log('eval ran')\n",
+				".pi/protect.json": JSON.stringify({
+					write: ["evals/test*.jsonl"],
+					read: ["evals/holdout*.jsonl"],
+					commands: [{ pattern: "--split[ =]+test\\b", reason: "the test split runs once, by the user" }],
+				}),
+			}, false);
+			const run = await runPi(repo, ["-p", "[scenario:protect] look around"]);
+			assert.equal(run.code, 0, run.stderr);
+			const [, afterCat, afterGrep, afterWrite, afterPi, afterEval] = requestsFor("protect");
+			assert.match(afterCat.lastUserText, /Blocked by safety-gate: the command would read evals\/holdout\.jsonl is protected/);
+			assert.match(afterGrep.lastUserText, /TOPSECRET in dev is fine/);
+			assert.doesNotMatch(afterGrep.lastUserText, /TOPSECRET payload/);
+			assert.match(afterGrep.lastUserText, /removed 1 line\(s\) that mention files protected/);
+			assert.match(afterWrite.lastUserText, /Blocked by safety-gate: evals\/test\.jsonl is protected by \.pi\/protect\.json \(write/);
+			assert.match(afterPi.lastUserText, /Blocked by safety-gate: \.pi\/gate\.json is inside \.pi\//);
+			assert.match(afterEval.lastUserText, /Blocked by safety-gate: the test split runs once, by the user/);
+			assert.equal(readFileSync(join(repo, "evals/test.jsonl"), "utf-8"), '{"id":"t-1"}\n');
+			assert.ok(!existsSync(join(repo, ".pi/gate.json")));
+		},
+	],
+	[
+		"/skill:grill-me starts the interview skill on request",
+		async () => {
+			const repo = makeRepo("grill", {}, false);
+			const run = await runPi(repo, ["-p", "/skill:grill-me a cache for scan results [scenario:grill]"]);
+			assert.equal(run.code, 0, run.stderr);
+			const [first] = requestsFor("grill");
+			assert.match(first.lastUserText, /design tree/);
+			assert.match(first.lastUserText, /a cache for scan results/);
+		},
+	],
+	[
+		"a worker subagent runs on DeepSeek V4.1 Flash at high with the safety gate loaded",
 		async () => {
 			const repo = makeRepo("subagent", { "build/out.js": "1\n" }, false);
 			const run = await runPi(repo, ["-p", "[scenario:subagent] delegate the cleanup to the worker subagent"]);
 			assert.equal(run.code, 0, run.stderr);
 			const child = requestsFor("child");
 			assert.ok(child.length >= 2, `worker made ${child.length} requests; stderr: ${run.stderr}`);
-			assert.ok(child.every((request) => request.model === GLM && request.effort === "high"));
+			assert.ok(child.every((request) => request.model === FLASH && request.effort === "high"));
 			assert.match(child[1].lastUserText, /Blocked by safety-gate/);
 			assert.ok(existsSync(join(repo, "build/out.js")));
 		},
@@ -411,7 +511,7 @@ for (const [name, scenario] of scenarios) {
 	}
 }
 await mock.stop();
-if (failed === 0) rmSync(root, { recursive: true, force: true });
+if (failed === 0 && !process.env.E2E_KEEP) rmSync(root, { recursive: true, force: true });
 else console.log(`kept ${root} for inspection`);
 console.log(failed ? `${failed} scenario(s) failed` : "all scenarios passed");
 process.exit(failed ? 1 : 0);
