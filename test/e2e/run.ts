@@ -24,7 +24,7 @@ import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
 const GLM = "z-ai/glm-5.3";
-const FLASH = "deepseek/deepseek-v4.1-flash";
+const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 const ROUTING = { zdr: true, data_collection: "deny", require_parameters: true };
 const PI_ENV = { OPENROUTER_API_KEY: "sk-or-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" };
 const root = mkdtempSync(join(tmpdir(), "nest-e2e-"));

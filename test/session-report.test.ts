@@ -40,7 +40,7 @@ function assistant(model: string, tools: { name: string; args: unknown }[] = [],
 }
 const result = (toolName: string, isError = false, text = "ok"): Entry => ({ type: "message", message: { role: "toolResult", toolName, isError, content: [{ type: "text", text }] } });
 const state = (tier: string, why: string): Entry => ({ type: "custom", customType: "pi.virtual-model-state", data: { provider: "router", modelId: "escalate", state: { tier, why } } });
-const FLASH = "deepseek/deepseek-v4.1-flash";
+const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 const GLM = "z-ai/glm-5.3";
 
 const session: Entry[] = [

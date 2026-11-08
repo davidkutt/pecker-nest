@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implements an approved plan on DeepSeek V4.1 Flash, tests first, and runs the repository check before reporting. The only role that edits files.
-model: openrouter/deepseek/deepseek-v4.1-flash
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
 thinking: high
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 acceptanceRole: writer

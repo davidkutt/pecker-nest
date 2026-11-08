@@ -66,9 +66,9 @@ docker --version      # für M6
    #   npm:pi-subagents@0.87.0
    ```
 
-   In Pi `/model` öffnen. Ausgewählt ist `router/escalate`; unter `openrouter` stehen `deepseek/deepseek-v4.1-flash` und `z-ai/glm-5.3`. Mit Ctrl+P schaltest du genau diese drei durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
+   In Pi `/model` öffnen. Ausgewählt ist `router/escalate`; unter `openrouter` stehen `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`. Mit Ctrl+P schaltest du genau diese drei durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
 
-   Fehlt eines der beiden Modelle, filtert es dein Konto heraus, meist wegen ZDR. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
+   Fehlt eines der beiden Modelle, filtert es dein Konto heraus, meist wegen ZDR. Am ehesten trifft das `deepseek/deepseek-v4.1-flash-1017`: Diesen Stand bedienen weniger Provider als den vom September. Notfalls in `extensions/lib/router-logic.ts`, `agent/settings.json` und den Agenten `scout`/`worker` auf `deepseek/deepseek-v4.1-flash` zurückgehen. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
 
    Abweichung vom Plan: `pi list` zeigt zwei Einträge, nicht einen. pi-subagents ist schon gepinnt.
 
@@ -197,9 +197,9 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-
 
 Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nach Fehlern bleiben auf dem Modell, das scheiterte. Jeder Wechsel kostet einen Prompt-Cache-Miss.
 
-1. **Test 9:** Eine Aufgabe von `/plan` bis Umsetzung. Die Fußzeile zeigt erst `escalate • high → z-ai/glm-5.3 • max`, beim nächsten Prompt `… → deepseek/deepseek-v4.1-flash • high`. Jeder Wechsel erscheint als Hinweis `router: …`.
+1. **Test 9:** Eine Aufgabe von `/plan` bis Umsetzung. Die Fußzeile zeigt erst `escalate • high → z-ai/glm-5.3 • max`, beim nächsten Prompt `… → deepseek/deepseek-v4.1-flash-1017 • high`. Jeder Wechsel erscheint als Hinweis `router: …`.
 2. Nach ein paar Sessions die Session-Reports ansehen (Abschnitt „Router“ und „Tools“): Wie oft musste GLM einspringen, und warum? Springt GLM zu oft ein, ist Flash für die Aufgabe zu schwach (dann `/hard` für solche Aufgaben). Springt GLM nie ein, obwohl Flash hängt, sind die Schwellen zu hoch. Die Schwellen stehen in `extensions/lib/router-logic.ts`.
-3. Ohne Router arbeiten: `/model openrouter/deepseek/deepseek-v4.1-flash` oder `/model openrouter/z-ai/glm-5.3`. Pi schreibt die Auswahl in `agent/settings.json` (Symlink); `git checkout agent/settings.json` stellt den Standard wieder her.
+3. Ohne Router arbeiten: `/model openrouter/deepseek/deepseek-v4.1-flash-1017` oder `/model openrouter/z-ai/glm-5.3`. Pi schreibt die Auswahl in `agent/settings.json` (Symlink); `git checkout agent/settings.json` stellt den Standard wieder her.
 
 ## M6 – Headless im Container (👤 ca. 30 Minuten)
 

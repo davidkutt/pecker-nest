@@ -8,6 +8,7 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 
 **Warum die Modelle wechseln:**
 - DeepSeek hat am 10.09. V4.1 Flash veröffentlicht und leitet seit dem 14.09. Anfragen an V4 Pro auf V4.1 Flash um. Der bisherige Reviewer (V4 Pro 0813) fällt weg. V4.1 Flash nimmt Bilder an, GLM 5.3 nicht.
+- nest nutzt den Stand vom 17.10. (`deepseek/deepseek-v4.1-flash-1017`, entschieden am 08.11.). Bei OpenRouter ist `deepseek/deepseek-v4.1-flash` ohne Datum der Stand vom 10.09., kein Alias auf den neuesten. Laut DeepSeek ist 1017 bei Coding und Agent-Aufgaben besser und schreibt kürzere Antworten, zum selben Preis. Dafür bedienen ihn bei OpenRouter weniger Provider (12 statt rund 38), deshalb nach dem Wechsel prüfen, ob mit ZDR noch einer übrig bleibt.
 - GLM 5.3 kostet bei OpenRouter etwa 1,40 / 4,40 / 0,26 USD (Input / Output / Cache-Read je Million Tokens), nicht 0,079 / 1,40 / 0,078 wie im Pi-Katalog 1.4.0. V4.1 Flash liegt je nach Provider bei etwa 0,15–0,30 / 0,60–1,20 / 0,003–0,03. Bei Coding-Agents dominiert der Cache-Read, deshalb ist eine lange Session auf Flash grob 10- bis 40-mal billiger.
 
 **Was sich geändert hat:**
@@ -15,6 +16,7 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | Bereich | Vorher (30.10.) | Jetzt (07.11.) |
 | --- | --- | --- |
 | Pi / pi-subagents | 1.4.0 / 0.83.1 | 1.5.0 / 0.87.0 (Prüfung unten) |
+| Flash-Modell | `deepseek/deepseek-v4-flash-0731` | `deepseek/deepseek-v4.1-flash-1017` |
 | Standardmodell | `openrouter/z-ai/glm-5.3` (`high`) | `router/escalate` |
 | Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. |
 | Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` |
@@ -73,8 +75,10 @@ Stand 07.11. (beide 1M Kontext; Preise in USD je Million Tokens, Input / Output 
 
 | Modell | ID | Preis (OpenRouter) | Denkstufen | Bilder | Rolle |
 | --- | --- | --- | --- | --- | --- |
-| DeepSeek V4.1 Flash | `deepseek/deepseek-v4.1-flash` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
+| DeepSeek V4.1 Flash (Stand 17.10.) | `deepseek/deepseek-v4.1-flash-1017` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
 | GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`), `planner` (`max`), `reviewer` (`high`), `oracle` |
+
+Neue Modelle zum Beobachten (Stand 08.11.): Kimi K3.1 Pro (`moonshotai/kimi-k3.1-pro`, 2 / 10 / 0,20, liest Bilder) als möglicher Ersatz für GLM bei Eskalation oder Review, an zwei, drei M1-Schritten gegen GLM testen; DeepSeek V4.1 Pro, sobald es erscheint. Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
 
 Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4.1 Flash um) und V4 Flash 0731 (bei DeepSeek selbst abgeschaltet; bei Drittanbietern noch erhältlich und mit ca. 0,04 / 0,08 billiger, aber ohne Bilder). Maßgeblich ist, was OpenRouter mit ZDR tatsächlich routet (Test 12).
 

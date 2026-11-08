@@ -5,7 +5,7 @@
   "defaultThinkingLevel": "high",
   "enabledModels": [
     "router/escalate",
-    "openrouter/deepseek/deepseek-v4.1-flash",
+    "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "openrouter/z-ai/glm-5.3"
   ],
   "showCacheMissNotices": true,
@@ -13,7 +13,7 @@
   "compaction": {
     "modelOverrides": {
       "router/escalate": { "reserveTokens": 800000 },
-      "openrouter/deepseek/deepseek-v4.1-flash": { "reserveTokens": 800000 },
+      "openrouter/deepseek/deepseek-v4.1-flash-1017": { "reserveTokens": 800000 },
       "openrouter/z-ai/glm-5.3": { "reserveTokens": 800000 }
     }
   },
@@ -22,7 +22,7 @@
     "npm:pi-subagents@0.87.0"
   ],
   "subagents": {
-    "defaultModel": "openrouter/deepseek/deepseek-v4.1-flash",
+    "defaultModel": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "defaultSubagentOnlyExtensions": [
       "~/dev/pecker-nest/extensions/safety-gate.ts"
     ],

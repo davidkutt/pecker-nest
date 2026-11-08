@@ -1,7 +1,7 @@
 /** Pure routing decisions for router.ts, kept free of Pi types so they can be unit-tested. */
 
 export const PROVIDER = "openrouter";
-export const FLASH = "deepseek/deepseek-v4.1-flash";
+export const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 export const GLM = "z-ai/glm-5.3";
 
 export type Tier = "flash" | "glm";

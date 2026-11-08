@@ -128,7 +128,7 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    Der Browser öffnet sich; danach lädt Pi die Modelle, die dein Konto nutzen darf.
 
 4. Kontrolle:
-   - `/model` zeigt `router/escalate` (ausgewählt) und unter `openrouter` `deepseek/deepseek-v4.1-flash` und `z-ai/glm-5.3`.
+   - `/model` zeigt `router/escalate` (ausgewählt) und unter `openrouter` `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`.
    - Fehlt eines davon, lässt dein ZDR-Filter es nicht zu. Siehe „Häufige Probleme“ unten.
    - In der Shell zeigt `pi list` zwei Packages: `~/dev/pecker-nest` und `npm:pi-subagents@0.87.0`.
 
