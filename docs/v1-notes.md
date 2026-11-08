@@ -1,6 +1,57 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 07.11.2026 (Strategie A), Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“) steht unten; was das Update vom 07.11. daran ändert, steht im ersten Abschnitt. Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 08.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 08.11.2026: Kimi K3.1 Pro als Ersatzmodell, DeepSeek V4.1 Pro
+
+Entschieden im Planungschat am 08.11.: Kimi K3.1 Pro kommt als **optionales** Ersatzmodell für GLM 5.3 dazu und wird an zwei, drei M1-Schritten gegen GLM getestet. GLM bleibt der Standard, damit die Übergabezahlen der bisherigen Sessions vergleichbar bleiben.
+
+**Was neu ist:**
+
+| Bereich | Vorher (07.11.) | Jetzt (08.11.) |
+| --- | --- | --- |
+| Starkes Modell | fest GLM 5.3 | wählbar: GLM 5.3 (Standard) oder Kimi K3.1 Pro, umgeschaltet mit `/strong glm\|kimi` |
+| Router-Befehle | `/hard`, `/flash` | zusätzlich `/strong [glm\|kimi]`; ohne Argument zeigt er die aktuelle Wahl |
+| Bilder | Ein Gespräch mit Bildern bleibt immer auf Flash (GLM liest keine Bilder) | Mit `kimi` kann auch ein Gespräch mit Bildern eskalieren, denn Kimi liest Bilder. Mit `glm` wie bisher. |
+| Session-Report | Wechsel je Grund | zusätzlich je starkem Modell („By strong model: GLM 5.3 1, Kimi K3.1 Pro 2“) |
+| `enabledModels`, `compaction.modelOverrides` | Router, Flash, GLM | zusätzlich `openrouter/moonshotai/kimi-k3.1-pro` (`reserveTokens: 800000`) |
+
+**Kimi K3.1 Pro** (`moonshotai/kimi-k3.1-pro`): im Katalog von Pi 1.5.0 vorhanden, Text und Bilder, Denkstufen `off`, `low`, `high`, `max`, 1M Kontext. Preis bei OpenRouter etwa 2 / 10 / 0,20 USD je Million Tokens (Input / Output / Cache-Read); GLM 5.3 liegt bei etwa 1,40 / 4,40 / 0,26. Kimi kostet also beim Input knapp das 1,5-Fache, beim Output gut das Doppelte, beim Cache-Read etwas weniger. Der Vergleich muss deshalb zeigen, dass die Antworten besser sind, nicht nur anders.
+
+**Wie `/strong` sich verhält:**
+- Es entscheidet, welches Modell der Router für `/plan` (`max`), für Eskalationen und für `/hard` (`high`) holt. Flash bleibt in jedem Fall das Arbeitsmodell.
+- Wie `/hard` schaltet es nur um und sendet keine Nachricht; den Prompt tippst du danach. (Eine von einer Extension gesendete Nachricht würde den `/plan`-Modus des Safety-Gates erben, siehe Befund vom 07.11.)
+- Die Wahl steht im Router-State, nicht in einer Variablen im Prozess: sie folgt `/tree` und Forks und übersteht Neustarts und Kompaktierung.
+- Alte Sessions bleiben lesbar. Vor `/strong` hieß die starke Stufe im State `tier: "glm"`; `readState()` liest das als die starke Stufe mit GLM. Der Session-Report zählt solche Wechsel weiter als GLM.
+- Fehlt das gewählte Modell in der Registry (mit ZDR bleibt womöglich kein Provider übrig), fällt der Router auf GLM 5.3 zurück, dann auf Flash, mit genau einem Hinweis je fehlendem Modell. Er wirft dabei keinen Fehler; die Session bleibt benutzbar.
+- Hinweise nennen das Modell beim Namen, z. B. `router: Kimi K3.1 Pro at max (plan)`.
+
+**Der Reviewer bleibt auf GLM.** Für den Vergleich im Review brauchst du keinen Rollenwechsel, sondern den Override für genau einen Lauf (pi-subagents, `docs/models.md`):
+
+```text
+/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:high] "<Aufgabe>"
+```
+
+Das ist in einem E2E-Szenario geprüft (RPC-Modus wie in der TUI): Der Reviewer läuft dann auf Kimi mit `high`, behält seine Routing-Vorgaben und bekommt weiterhin keine Schreib-Tools. `agent/agents/reviewer.md` bleibt unverändert auf GLM, der Override gilt nur für diesen Lauf.
+
+**DeepSeek V4.1 Pro:** weiter beobachten, es gibt kein Erscheinungsdatum. Sobald es da ist, mit Flash und dem starken Modell vergleichen; bis dahin ändert sich nichts.
+
+**Safety Gate:** Claude Codes Konfigurationsverzeichnis (`${CLAUDE_CONFIG_DIR:-~/.claude}`) gilt jetzt wie dieses Repo und Pis Agent-Verzeichnis als Harness: nest kann die Einstellungen, Skills und Hooks des Harness nicht ändern, der seine Sessions begleitet. Nötig, weil pecker-groves `CLAUDE.md` Agenten anweist, Skills nach `~/.claude/skills` zu schreiben.
+
+**`templates/undertext/protect.json` korrigiert.** Die Globs vom 07.11. (`evals/samples/test*.jsonl` usw.) passten nicht zu undertexts echtem Layout. Die zurückgehaltenen Dateien heißen `evals/samples/harness-holdout.jsonl` und `harness-gaps.jsonl` (undertext PR #2), der Präfix steht also vor dem Namen des Splits. Davids Test-Split existiert noch nicht. Geschützt wird jetzt vor Lesen und Schreiben:
+
+| Glob | Warum |
+| --- | --- |
+| `evals/samples/*test*.jsonl` | Davids Test-Split, sobald er angelegt wird |
+| `evals/samples/*holdout*.jsonl` | `harness-holdout.jsonl` und künftige Holdouts |
+| `evals/samples/*gaps*.jsonl` | `harness-gaps.jsonl` |
+| `evals/import/**` | das Mapping des Konverters nennt die Quellen der zurückgehaltenen Samples |
+
+Die Befehlsregel (`--split test|holdout|gaps`) bleibt. Ein Unit-Test lädt die Vorlage wie das Safety-Gate eine `.pi/protect.json` und prüft sie gegen diese Dateinamen, damit die Globs nicht wieder am Layout vorbeigehen.
+
+**Claude-Code-Skills:** `/nest-supervise` darf auf Davids Bitte den Branch pushen und den PR für nests Arbeit eröffnen (Kategorie `admin`, die `/nest-handoff` nicht gegen nest zählt; nicht mergen, den Code nicht mergefähig machen). `/nest-handoff` füllt die neue Tabelle „Model comparison“ in der Feldnotiz, wenn die Session einen Vergleich hatte.
+
+**Nicht getestet:** die echten Modelle, also auch, ob Kimi bei OpenRouter mit ZDR einen Provider hat und ob seine Antworten besser sind als die von GLM. Das ist der Zweck des Vergleichs in RUNBOOK M5. Getestet ist die Verdrahtung: `/strong kimi` lässt `/plan` auf Kimi mit `max` laufen, eine Schleife eskaliert auf Kimi, `/strong glm` geht zurück, und ein fehlendes Kimi fällt auf GLM zurück, ohne zu werfen (vier neue E2E-Szenarien plus Unit-Tests).
 
 ## Update 07.11.2026: Strategie A
 
@@ -18,11 +69,11 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | Pi / pi-subagents | 1.4.0 / 0.83.1 | 1.5.0 / 0.87.0 (Prüfung unten) |
 | Flash-Modell | `deepseek/deepseek-v4-flash-0731` | `deepseek/deepseek-v4.1-flash-1017` |
 | Standardmodell | `openrouter/z-ai/glm-5.3` (`high`) | `router/escalate` |
-| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. |
+| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. (Seit 08.11. ist das starke Modell mit `/strong` wählbar; mit Kimi eskaliert auch ein Gespräch mit Bildern.) |
 | Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` |
 | Builtins | `oracle`, `delegate` auf GLM | `delegate` auf Flash (`subagents.defaultModel`), `oracle` auf GLM |
 | Kompaktierung | bei ~1M Kontext (Standard `reserveTokens` 16k) | bei ~250k: `compaction.modelOverrides` mit `reserveTokens: 800000` für Router, Flash und GLM. Andere Modelle behalten den Standard. |
-| Safety Gate | feste Regeln | zusätzlich: `.pi/` ist für den Agenten tabu, ebenso dieses Repo und Pis Agent-Verzeichnis; `.pi/protect.json` je Repo (Pfade nicht schreiben, Pfade nicht lesen, Befehle nicht ausführen; Zeilen mit geschützten Pfaden werden aus grep-, find-, ls- und bash-Ausgaben entfernt). Eine kaputte `protect.json` sperrt alle Schreibzugriffe und Befehle. |
+| Safety Gate | feste Regeln | zusätzlich: `.pi/` ist für den Agenten tabu, ebenso dieses Repo und Pis Agent-Verzeichnis (seit 08.11. auch Claude Codes Konfigurationsverzeichnis); `.pi/protect.json` je Repo (Pfade nicht schreiben, Pfade nicht lesen, Befehle nicht ausführen; Zeilen mit geschützten Pfaden werden aus grep-, find-, ls- und bash-Ausgaben entfernt). Eine kaputte `protect.json` sperrt alle Schreibzugriffe und Befehle. |
 | Neu | – | Checkpoints vor jedem Prompt (`/rewind`, `/checkpoints`), `todo`- und `questionnaire`-Tool (unverändert aus Pis Beispielen), Skill `grill-me` (nur manuell), `scripts/session-report.ts`, Claude-Code-Skills `/nest-supervise` und `/nest-handoff`, `field-notes/` (lokal) |
 
 **Befunde aus dem Umbau:**
@@ -71,14 +122,15 @@ Mit OpenRouter bestätigt (11 Szenarien plus Container-Lauf):
 
 ## Modelle
 
-Stand 07.11. (beide 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read, wie OpenRouter sie im November listet; der Pi-Katalog schätzt anders). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys, und der Session-Report rechnet mit den Kosten, die OpenRouter meldet.
+Stand 08.11. (alle drei 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read, wie OpenRouter sie im November listet; der Pi-Katalog schätzt anders). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys, und der Session-Report rechnet mit den Kosten, die OpenRouter meldet.
 
 | Modell | ID | Preis (OpenRouter) | Denkstufen | Bilder | Rolle |
 | --- | --- | --- | --- | --- | --- |
 | DeepSeek V4.1 Flash (Stand 17.10.) | `deepseek/deepseek-v4.1-flash-1017` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
-| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`), `planner` (`max`), `reviewer` (`high`), `oracle` |
+| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`) als Standard, `planner` (`max`), `reviewer` (`high`), `oracle` |
+| Kimi K3.1 Pro (optional, seit 08.11.) | `moonshotai/kimi-k3.1-pro` | ca. 2 / 10 / 0,20 | `off`, `low`, `high`, `max` | ja | Router nach `/strong kimi`, im Review per Lauf-Override; sonst nicht belegt |
 
-Neue Modelle zum Beobachten (Stand 08.11.): Kimi K3.1 Pro (`moonshotai/kimi-k3.1-pro`, 2 / 10 / 0,20, liest Bilder) als möglicher Ersatz für GLM bei Eskalation oder Review, an zwei, drei M1-Schritten gegen GLM testen; DeepSeek V4.1 Pro, sobald es erscheint. Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
+Noch zu beobachten: DeepSeek V4.1 Pro, sobald es erscheint (kein Erscheinungsdatum). Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
 
 Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4.1 Flash um) und V4 Flash 0731 (bei DeepSeek selbst abgeschaltet; bei Drittanbietern noch erhältlich und mit ca. 0,04 / 0,08 billiger, aber ohne Bilder). Maßgeblich ist, was OpenRouter mit ZDR tatsächlich routet (Test 12).
 
