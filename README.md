@@ -1,8 +1,8 @@
 # pecker-nest
 
-Versioned [Pi](https://pi.dev) configuration for nest: DeepSeek V4.1 Flash does the work and GLM 5.3 steps in when it is needed (strategy A), both through one OpenRouter key with zero-data-retention routing. It adds a safety gate with per-repository protection rules, a quality gate with bounded self-repair, an escalation router, git checkpoints with `/rewind`, four subagent roles with a cross-model review chain, headless runs in Docker, and a session report plus Claude Code skills for supervised dogfooding. Host and container load the same files.
+Versioned [Pi](https://pi.dev) configuration for nest: DeepSeek V4.1 Flash does the work and a stronger model steps in when it is needed (strategy A) — GLM 5.3 by default, Kimi K3.1 Pro with `/strong kimi` — all through one OpenRouter key with zero-data-retention routing. It adds a safety gate with per-repository protection rules, a quality gate with bounded self-repair, an escalation router, git checkpoints with `/rewind`, four subagent roles with a cross-model review chain, headless runs in Docker, and a session report plus Claude Code skills for supervised dogfooding. Host and container load the same files.
 
-The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the update "GLM 5.3 & DeepSeek über OpenRouter" (30.10.2026) and strategy A from the planning chat (07.11.2026). In that plan this repo is called `pi-config`.
+The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the update "GLM 5.3 & DeepSeek über OpenRouter" (30.10.2026), strategy A from the planning chat (07.11.2026) and the optional Kimi K3.1 Pro stand-in (08.11.2026). In that plan this repo is called `pi-config`.
 
 - **Start here, from zero:** [docs/SETUP.md](docs/SETUP.md)
 - **Acceptance tests, milestones, dogfooding:** [docs/RUNBOOK.md](docs/RUNBOOK.md)
@@ -15,10 +15,12 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── package.json              Pi package: extensions, skills, prompts; pi-subagents agent dir
 ├── extensions/
 │   ├── safety-gate.ts        blocks rm -rf, git push/reset --hard/clean -f, curl|sh, writes to .env*/keys/.pi/,
-│   │                         the harness itself; applies .pi/protect.json; /plan writes only PLAN.md
+│   │                         the harness itself (this repo, Pi's and Claude Code's config dirs);
+│   │                         applies .pi/protect.json; /plan writes only PLAN.md
 │   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command
-│   ├── router.ts             virtual model router/escalate: Flash by default, GLM for /plan, a red gate
-│   │                         at repair round 2, loops, or /hard (until /flash)
+│   ├── router.ts             virtual model router/escalate: Flash by default, the strong model for
+│   │                         /plan, a red gate at repair round 2, loops, or /hard (until /flash);
+│   │                         /strong glm|kimi picks it
 │   ├── checkpoint.ts         git checkpoint before every prompt; /rewind, /checkpoints
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested
@@ -37,7 +39,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── docker/                   Dockerfile.pi, pi-run.sh, task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
-│   ├── session-report.ts     cost, models, switches to GLM, failed edits, loops, gates from Pi's session logs
+│   ├── session-report.ts     cost, models, switches per reason and strong model, failed edits, loops,
+│   │                         gates from Pi's session logs
 │   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
 └── test/                     unit tests; e2e/ runs real Pi against a scripted OpenRouter mock
 ```
@@ -51,7 +54,7 @@ pi            # first start installs pi-subagents@0.87.0; then /login openrouter
 pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
 ```
 
-In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
+In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
 
 ## Checks
 

@@ -4,8 +4,9 @@
  *
  * - bash: rm -rf, git push, git reset --hard, git clean -f, curl … | sh, and writes to
  *   .env*, .git/, .pi/, keys and other credential files (see lib/safety-rules.ts).
- * - edit/write: the same protected paths, plus the harness itself: this package and Pi's
- *   agent directory. The agent never edits its own gates, settings or protection rules.
+ * - edit/write: the same protected paths, plus the harness itself: this package, Pi's agent
+ *   directory and Claude Code's config directory (${CLAUDE_CONFIG_DIR:-~/.claude}). The agent
+ *   never edits its own gates, settings or protection rules, nor the supervisor's.
  * - /plan runs: edit/write may only touch PLAN.md.
  * - `.pi/protect.json` adds repository rules (lib/protect-config.ts): paths the agent must not
  *   write, paths it must not read either, and commands it must not run. Lines that mention a
@@ -50,9 +51,16 @@ function canonical(path: string): string {
 	}
 }
 
+/**
+ * Directories the agent must never write: this package, Pi's agent directory and Claude Code's
+ * config directory. Claude Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells
+ * agents to write skills to `~/.claude/skills`, so without the third entry nest could change
+ * the settings, skills and hooks of the harness that watches it.
+ */
 const HARNESS_DIRS = [
 	canonical(resolve(dirname(fileURLToPath(import.meta.url)), "..")),
 	canonical(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent")),
+	canonical(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
 ];
 
 const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);

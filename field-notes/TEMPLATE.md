@@ -6,7 +6,7 @@
 - Start HEAD → end HEAD:
 - Task or brief:
 - Start → end (active minutes):
-- Setup: pecker-nest <commit>, Pi <version>, router/escalate (DeepSeek V4.1 Flash, GLM 5.3); gate.json / protect.json present; project trusted
+- Setup: pecker-nest <commit>, Pi <version>, router/escalate (DeepSeek V4.1 Flash, strong model GLM 5.3 or Kimi K3.1 Pro via `/strong`); gate.json / protect.json present; project trusted
 
 ## Outcome
 
@@ -25,13 +25,23 @@
 
 - 
 
+## Model comparison
+
+<!-- only when the session compared GLM 5.3 and Kimi K3.1 Pro (RUNBOOK M5); costs from the session report, per model -->
+
+| Step | GLM 5.3 result | Kimi K3.1 Pro result | Cost GLM | Cost Kimi | Verdict |
+| --- | --- | --- | ---: | ---: | --- |
+|  |  |  |  |  |  |
+
+Overall:
+
 ## Interventions
 
 | Time | What | Why (what nest failed at) | Size | Category |
 | --- | --- | --- | --- | --- |
 |  |  |  |  |  |
 
-Total:
+Total (without `admin`):
 
 ## Harness findings
 

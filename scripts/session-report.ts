@@ -68,6 +68,8 @@ export interface Stats {
 	agents: Record<string, { requests: number; cost: number }>;
 	otherCost: number;
 	escalations: Record<string, number>;
+	/** The same switches counted by the strong model that served them (`glm`, `kimi`). */
+	escalationsByModel: Record<string, number>;
 	tools: Record<string, { calls: number; failed: number; blocked: number }>;
 	edits: { calls: number; failed: number };
 	loops: number;
@@ -86,6 +88,7 @@ export function emptyStats(): Stats {
 		agents: {},
 		otherCost: 0,
 		escalations: {},
+		escalationsByModel: {},
 		tools: {},
 		edits: { calls: 0, failed: 0 },
 		loops: 0,
@@ -176,12 +179,16 @@ export function addEntries(stats: Stats, entries: readonly Entry[], agent = "mai
 				}
 			}
 		} else if (entry.type === "custom" && entry.customType === "pi.virtual-model-state") {
-			const state = (entry.data as { state?: { tier?: string; why?: string } } | undefined)?.state;
-			if (state?.tier === "glm" && lastTier !== "glm") {
-				const why = state.why ?? "unknown";
+			const state = (entry.data as { state?: { tier?: string; why?: string; strong?: string } } | undefined)?.state;
+			// `strong` is the current tier name; sessions from before /strong wrote `glm`.
+			const tier = state?.tier === "glm" ? "strong" : state?.tier;
+			if (tier === "strong" && lastTier !== "strong") {
+				const why = state?.why ?? "unknown";
 				stats.escalations[why] = (stats.escalations[why] ?? 0) + 1;
+				const strong = state?.strong ?? "glm";
+				stats.escalationsByModel[strong] = (stats.escalationsByModel[strong] ?? 0) + 1;
 			}
-			lastTier = state?.tier ?? lastTier;
+			lastTier = tier ?? lastTier;
 		} else if (entry.type === "custom" && entry.customType === "quality-gate") {
 			const data = entry.data as { ok?: boolean } | undefined;
 			stats.gate.runs++;
@@ -306,6 +313,9 @@ export function buildReport(files: readonly string[]): Report {
 
 // ---------------------------------------------------------------- output
 
+/** Display names for the strong models the router can call in (see extensions/lib/router-logic.ts). */
+const STRONG_NAMES: Record<string, string> = { glm: "GLM 5.3", kimi: "Kimi K3.1 Pro" };
+
 const usd = (value: number) => `$${value < 0.01 && value > 0 ? value.toFixed(4) : value.toFixed(2)}`;
 const tokens = (value: number) => (value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}M` : value >= 1000 ? `${Math.round(value / 1000)}k` : String(value));
 const pct = (part: number, whole: number) => (whole ? `${Math.round((part / whole) * 100)}%` : "–");
@@ -341,8 +351,14 @@ export function renderMarkdown(report: Report): string {
 	if (stats.requestErrors.length) lines.push("", "Request errors:", ...stats.requestErrors.map((error) => `- ${error}`));
 
 	const escalations = Object.entries(stats.escalations);
+	const byModel = Object.entries(stats.escalationsByModel);
 	lines.push("", "## Router", "");
-	lines.push(escalations.length ? `Switches to GLM 5.3: ${escalations.map(([why, count]) => `${why} ${count}`).join(", ")}.` : "No switch to GLM 5.3 (or router/escalate was not selected).");
+	if (escalations.length) {
+		lines.push(`Switches to the strong model: ${escalations.map(([why, count]) => `${why} ${count}`).join(", ")}.`);
+		lines.push(`By strong model: ${byModel.map(([strong, count]) => `${STRONG_NAMES[strong] ?? strong} ${count}`).join(", ")}.`);
+	} else {
+		lines.push("No switch to the strong model (or router/escalate was not selected).");
+	}
 
 	lines.push("", "## Tools", "", "| Tool | Calls | Failed | Blocked |", "| --- | ---: | ---: | ---: |");
 	for (const [name, tool] of Object.entries(stats.tools).sort(([, a], [, b]) => b.calls - a.calls)) {

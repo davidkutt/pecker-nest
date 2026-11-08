@@ -6,7 +6,8 @@
   "enabledModels": [
     "router/escalate",
     "openrouter/deepseek/deepseek-v4.1-flash-1017",
-    "openrouter/z-ai/glm-5.3"
+    "openrouter/z-ai/glm-5.3",
+    "openrouter/moonshotai/kimi-k3.1-pro"
   ],
   "showCacheMissNotices": true,
   "defaultTools": ["+grep", "+find", "+ls"],
@@ -14,7 +15,8 @@
     "modelOverrides": {
       "router/escalate": { "reserveTokens": 800000 },
       "openrouter/deepseek/deepseek-v4.1-flash-1017": { "reserveTokens": 800000 },
-      "openrouter/z-ai/glm-5.3": { "reserveTokens": 800000 }
+      "openrouter/z-ai/glm-5.3": { "reserveTokens": 800000 },
+      "openrouter/moonshotai/kimi-k3.1-pro": { "reserveTokens": 800000 }
     }
   },
   "packages": [

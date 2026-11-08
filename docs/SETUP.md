@@ -17,7 +17,7 @@ Drei Repos, alle unter `github.com/davidkutt`:
 So hängt es zusammen:
 
 - Pi liest seine Konfiguration aus `~/.pi/agent`. `scripts/link.sh` ersetzt dort `settings.json`, `models.json`, `APPEND_SYSTEM.md`, `mcp.json` und einige Prompts durch Symlinks auf `pecker-nest/agent/`. Ab dann gilt: Was im Repo steht, gilt in Pi.
-- Die Modelle laufen über OpenRouter (Strategie A): DeepSeek V4.1 Flash arbeitet, GLM 5.3 plant, prüft und springt ein, wenn Flash hängt. Das Standardmodell `router/escalate` entscheidet je Anfrage. OpenRouter routet nur an Provider mit Zero Data Retention.
+- Die Modelle laufen über OpenRouter (Strategie A): DeepSeek V4.1 Flash arbeitet, GLM 5.3 plant, prüft und springt ein, wenn Flash hängt. Das Standardmodell `router/escalate` entscheidet je Anfrage. Seit 08.11. lässt sich das starke Modell mit `/strong kimi` auf Kimi K3.1 Pro umstellen (optional, für den Vergleich; siehe RUNBOOK M5). OpenRouter routet nur an Provider mit Zero Data Retention.
 - Für Headless-Läufe baust du ein Docker-Image, das eine Kopie von `pecker-nest` enthält.
 
 ## 1. Voraussetzungen prüfen (10 Minuten)
@@ -70,7 +70,7 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | `agent/APPEND_SYSTEM.md` | Globale Arbeitsregeln für das Modell | Passen sie zu deiner Arbeitsweise? |
 | `extensions/safety-gate.ts`, `extensions/lib/safety-rules.ts`, `extensions/lib/protect-config.ts` | Blockiert `rm -rf`, `git push`, `git reset --hard`, `curl … \| sh`, Schreiben auf `.env`, Secrets, `.pi/` und die Harness selbst; wendet `.pi/protect.json` je Repo an | Fehlt dir etwas, oder ist etwas zu streng? |
 | `extensions/quality-gate.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden | Läuft nur in Repos, denen du vertraust (`/trust`) |
-| `extensions/router.ts`, `extensions/lib/router-logic.ts` | Virtuelles Modell `router/escalate`: Flash für jeden Prompt, GLM für `/plan`, ein rotes Gate in Runde 2, Schleifen und `/hard` | Die Schwellen in `router-logic.ts` |
+| `extensions/router.ts`, `extensions/lib/router-logic.ts` | Virtuelles Modell `router/escalate`: Flash für jeden Prompt, das starke Modell für `/plan`, ein rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Die Schwellen und `DEFAULT_STRONG` in `router-logic.ts` |
 | `extensions/checkpoint.ts`, `extensions/lib/checkpoint.ts` | Git-Checkpoint vor jedem Prompt, `/rewind` | Ruft `git` auf, schreibt nur Refs unter `refs/nest/checkpoints/` |
 | `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
 | `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus |

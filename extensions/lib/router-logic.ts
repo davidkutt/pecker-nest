@@ -3,8 +3,27 @@
 export const PROVIDER = "openrouter";
 export const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 export const GLM = "z-ai/glm-5.3";
+export const KIMI = "moonshotai/kimi-k3.1-pro";
 
-export type Tier = "flash" | "glm";
+/**
+ * The model the router calls in for /plan, escalations and /hard. GLM 5.3 is the default;
+ * `/strong kimi` swaps in Kimi K3.1 Pro so the two can be compared on the same steps.
+ */
+export type Strong = "glm" | "kimi";
+
+export const STRONG_MODELS: Record<Strong, { id: string; name: string }> = {
+	glm: { id: GLM, name: "GLM 5.3" },
+	kimi: { id: KIMI, name: "Kimi K3.1 Pro" },
+};
+
+export const DEFAULT_STRONG: Strong = "glm";
+
+export function isStrong(value: unknown): value is Strong {
+	return value === "glm" || value === "kimi";
+}
+
+/** The tier a request runs on. `strong` is whichever model `/strong` selected. */
+export type Tier = "flash" | "strong";
 /** Why the session runs on its tier. Only `hard` outlives the next prompt you type. */
 export type Why = "default" | "plan" | "hard" | "gate" | "loop" | "stuck";
 export type Level = "high" | "max";
@@ -12,13 +31,37 @@ export type Level = "high" | "max";
 export interface RouterState {
 	tier: Tier;
 	why: Why;
-	/** Set by /hard: GLM stays on for every prompt until /flash. */
+	/** Set by /hard: the strong model stays on for every prompt until /flash. */
 	sticky?: boolean;
+	/** Which strong model /strong selected; absent means the default (GLM). */
+	strong?: Strong;
 }
 
 export const DEFAULT_STATE: RouterState = { tier: "flash", why: "default" };
 
-/** GLM plans at max; everything else runs at high. */
+/**
+ * The strong model a stored state asks for. States written before /strong existed carry
+ * `tier: "glm"` and no `strong`, so they keep reading as GLM.
+ */
+export function strongOf(state: RouterState | undefined): Strong {
+	return isStrong(state?.strong) ? state.strong : DEFAULT_STRONG;
+}
+
+/** Normalizes a stored state: the old `tier: "glm"` means the strong tier. */
+export function readState(state: unknown): RouterState | undefined {
+	if (!state || typeof state !== "object") return undefined;
+	const raw = state as { tier?: unknown; why?: unknown; sticky?: unknown; strong?: unknown };
+	const tier: Tier = raw.tier === "strong" || raw.tier === "glm" ? "strong" : "flash";
+	const why = (["default", "plan", "hard", "gate", "loop", "stuck"] as const).find((candidate) => candidate === raw.why) ?? "default";
+	return {
+		tier,
+		why,
+		...(raw.sticky ? { sticky: true } : {}),
+		...(isStrong(raw.strong) ? { strong: raw.strong } : {}),
+	};
+}
+
+/** The strong model plans at max; everything else runs at high. */
 export function levelFor(why: Why): Level {
 	return why === "plan" ? "max" : "high";
 }
@@ -156,57 +199,84 @@ export interface RouteInput {
 	keepTier: boolean;
 	/** /hard (true) or /flash (false) was used since the last request. */
 	hard?: boolean;
-	/** GLM is available and can read every message (no images, or GLM accepts images). */
-	glmUsable: boolean;
+	/** The strong model /strong selected since the last request. */
+	strong?: Strong;
+	/** The strong model is available and can read every message (no images, or it accepts them). */
+	strongUsable: boolean;
+	/** The strong model that is actually reachable, when it is not the selected one (fallback). */
+	strongFallback?: Strong;
 }
 
 export interface RouteDecision {
 	state: RouterState;
 	tier: Tier;
 	level: Level;
+	/** The strong model this decision runs on, or would run on. */
+	strong: Strong;
 	/** Set when the tier changes, for a notification. */
 	notice?: string;
+}
+
+/** The display name of a strong model, for notices. */
+export function strongName(strong: Strong): string {
+	return STRONG_MODELS[strong].name;
 }
 
 /** The next tier and thinking level. `state` is what the session records; `tier` is what runs. */
 export function decide(input: RouteInput): RouteDecision {
 	const current = input.state ?? DEFAULT_STATE;
+	// /strong, like /hard, takes effect with the prompt you type next and is then remembered.
+	const selected = input.reason === "user" && input.strong !== undefined ? input.strong : strongOf(current);
+	const keep = (why: Why, extra: Partial<RouterState> = {}): RouterState => ({
+		tier: "strong",
+		why,
+		...extra,
+		...(selected === DEFAULT_STRONG ? {} : { strong: selected }),
+	});
 	let state = current;
 	let detail: string | undefined;
 
 	if (input.reason === "user") {
 		const sticky = input.hard ?? current.sticky ?? false;
-		if (input.planRequested) state = { tier: "glm", why: "plan", ...(sticky ? { sticky } : {}) };
-		else if (input.keepTier && input.hard === undefined) state = current;
-		else if (sticky) state = { tier: "glm", why: "hard", sticky: true };
-		else state = DEFAULT_STATE;
+		if (input.planRequested) state = keep("plan", sticky ? { sticky } : {});
+		else if (input.keepTier && input.hard === undefined && input.strong === undefined) state = current;
+		else if (sticky) state = keep("hard", { sticky: true });
+		else state = selected === DEFAULT_STRONG ? DEFAULT_STATE : { ...DEFAULT_STATE, strong: selected };
 	} else if (current.tier === "flash") {
 		const round = gateRound(input.messages);
 		const stuck = stuckReason(input.messages);
 		if (round >= 2) {
-			state = { ...current, tier: "glm", why: "gate" };
+			state = { ...current, tier: "strong", why: "gate" };
 			detail = `quality gate still red at repair round ${round}`;
 		} else if (stuck) {
-			state = { ...current, tier: "glm", why: stuck.why };
+			state = { ...current, tier: "strong", why: stuck.why };
 			detail = stuck.detail;
 		}
 	}
 
-	// GLM 5.3 reads no images and may be filtered out by your OpenRouter settings; Flash takes over.
-	const effective = (candidate: RouterState): Tier => (candidate.tier === "glm" && !input.glmUsable ? "flash" : candidate.tier);
+	// The model that will actually serve the strong tier: the selected one, or the fallback the
+	// registry left us. GLM 5.3 reads no images, and ZDR may leave a model without a provider.
+	const strong = input.strongFallback ?? selected;
+	const effective = (candidate: RouterState): Tier => (candidate.tier === "strong" && !input.strongUsable ? "flash" : candidate.tier);
 	const tier = effective(state);
 	const level = levelFor(state.why);
 	const reason = `${state.why}${detail ? `: ${detail}` : ""}`;
 	let notice: string | undefined;
 	if (tier !== effective(current)) {
-		notice = tier === "glm" ? `GLM 5.3 at ${level} (${reason})` : "back on DeepSeek V4.1 Flash";
-	} else if (state.tier === "glm" && tier === "flash" && current.tier !== "glm") {
-		notice = `staying on DeepSeek V4.1 Flash: GLM 5.3 cannot take this conversation (${reason})`;
+		notice = tier === "strong" ? `${strongName(strong)} at ${level} (${reason})` : "back on DeepSeek V4.1 Flash";
+	} else if (state.tier === "strong" && tier === "flash" && current.tier !== "strong") {
+		notice = `staying on DeepSeek V4.1 Flash: ${strongName(strong)} cannot take this conversation (${reason})`;
 	}
-	return { state, tier, level, ...(notice ? { notice } : {}) };
+	return { state, tier, level, strong, ...(notice ? { notice } : {}) };
 }
 
 /** Same state? Used to avoid storing an unchanged state, which Pi would record as a new entry. */
 export function sameState(a: RouterState | undefined, b: RouterState): boolean {
-	return a !== undefined && a.tier === b.tier && a.why === b.why && Boolean(a.sticky) === Boolean(b.sticky);
+	return (
+		a !== undefined &&
+		a.tier === b.tier &&
+		a.why === b.why &&
+		Boolean(a.sticky) === Boolean(b.sticky) &&
+		strongOf(a) === strongOf(b)
+	);
 }

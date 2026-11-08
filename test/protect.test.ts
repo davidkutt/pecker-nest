@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
-import { existingMatches, globToRegExp, loadProtectConfig, matchingGlob, staticPrefix } from "../extensions/lib/protect-config.ts";
+import { existingMatches, globToRegExp, loadProtectConfig, matchingGlob, type ProtectConfig, staticPrefix } from "../extensions/lib/protect-config.ts";
 import {
 	bashCommandReason,
 	type PathPolicy,
@@ -22,7 +23,7 @@ function policy(overrides: Partial<PathPolicy> = {}): PathPolicy {
 		read: ["evals/samples/holdout*.jsonl"],
 		readFiles: ["evals/samples/holdout.jsonl"],
 		commands: [{ pattern: /--split[ =]+(test|holdout)\b/, reason: "the held-out splits run once, by David" }],
-		harnessDirs: ["/home/dev/pecker-nest", "/home/dev/.pi/agent"],
+		harnessDirs: ["/home/dev/pecker-nest", "/home/dev/.pi/agent", "/home/dev/.claude"],
 		...overrides,
 	};
 }
@@ -114,6 +115,22 @@ describe("protectedPathReason with a repository policy", () => {
 		assert.match(protectedPathReason(".pi/protect.json", policy()) ?? "", /inside \.pi\//);
 		assert.match(protectedPathReason(`~/.pi/agent/models.json`) ?? "", /inside \.pi\//);
 	});
+	it("blocks Claude Code's config directory, so nest cannot change its supervisor", () => {
+		// pecker-grove's CLAUDE.md tells agents to write skills to ~/.claude/skills.
+		for (const path of [
+			"/home/dev/.claude/settings.json",
+			"/home/dev/.claude/skills/nest-supervise/SKILL.md",
+			"/home/dev/.claude/CLAUDE.md",
+		]) {
+			assert.match(protectedPathReason(path, policy()) ?? "", /part of the agent harness \(\/home\/dev\/\.claude\)/, path);
+		}
+		assert.equal(protectedPathReason("/home/dev/.claude-notes/todo.md", policy()), undefined, "a sibling path is not the config dir");
+	});
+	it("blocks Claude Code's config directory under CLAUDE_CONFIG_DIR too", () => {
+		const moved = policy({ harnessDirs: ["/home/dev/pecker-nest", "/home/dev/.pi/agent", "/opt/claude-config"] });
+		assert.match(protectedPathReason("/opt/claude-config/skills/x/SKILL.md", moved) ?? "", /part of the agent harness/);
+		assert.equal(protectedPathReason("/home/dev/.claude/settings.json", moved), undefined, "with CLAUDE_CONFIG_DIR set, ~/.claude is not the harness");
+	});
 	it("expands ~ against the home directory", () => {
 		const home = policy({ harnessDirs: [join(homedir(), "dev/pecker-nest")] });
 		assert.match(protectedPathReason("~/dev/pecker-nest/agent/settings.json", home) ?? "", /harness/);
@@ -143,6 +160,8 @@ describe("bashCommandReason with a repository policy", () => {
 		"sed -i 's/a/b/' evals/samples/test.jsonl",
 		"echo x > .pi/gate.json",
 		"tee /home/dev/pecker-nest/agent/settings.json < /dev/null",
+		"echo x > /home/dev/.claude/settings.json",
+		"cp skill.md /home/dev/.claude/skills/nest-supervise/SKILL.md",
 	];
 	for (const command of blocked) {
 		it(`blocks: ${command}`, () => assert.ok(bashCommandReason(command, policy()), command));
@@ -187,5 +206,69 @@ describe("redactProtectedLines", () => {
 	});
 	it("leaves output alone without protected files", () => {
 		assert.deepEqual(redactProtectedLines("a\nb", []), { text: "a\nb", removed: 0 });
+	});
+});
+
+describe("templates/undertext/protect.json", () => {
+	const template = join(dirname(fileURLToPath(import.meta.url)), "../templates/undertext/protect.json");
+
+	/** Loads the template the way the safety gate loads a repository's `.pi/protect.json`. */
+	function loadTemplate(): ProtectConfig {
+		const dir = mkdtempSync(join(tmpdir(), "nest-undertext-"));
+		mkdirSync(join(dir, ".pi"), { recursive: true });
+		copyFileSync(template, join(dir, ".pi/protect.json"));
+		const config = loadProtectConfig(dir)!;
+		rmSync(dir, { recursive: true, force: true });
+		return config;
+	}
+
+	it("is valid for the safety gate", () => {
+		const config = loadTemplate();
+		assert.ok(config.read.length && config.write.length && config.commands.length);
+	});
+
+	it("read-protects undertext's real held-out sample files", () => {
+		const { read } = loadTemplate();
+		// The files that exist today (undertext PR #2) and David's test split, which does not yet.
+		const protectedFiles = [
+			"evals/samples/harness-holdout.jsonl",
+			"evals/samples/harness-gaps.jsonl",
+			"evals/samples/test.jsonl",
+			"evals/samples/harness-test.jsonl",
+			"evals/samples/m1-holdout.jsonl",
+			"evals/samples/gaps.jsonl",
+		];
+		for (const file of protectedFiles) assert.ok(matchingGlob(file, read), `${file} must be read-protected`);
+	});
+
+	it("read-protects the converter's mapping, which names the held-out sources", () => {
+		const { read } = loadTemplate();
+		for (const file of ["evals/import/mapping.json", "evals/import/sources/harness.yaml", "evals/import/README.md"]) {
+			assert.ok(matchingGlob(file, read), `${file} must be read-protected`);
+		}
+	});
+
+	it("leaves the samples nest may read alone", () => {
+		const { read } = loadTemplate();
+		for (const file of ["evals/samples/dev.jsonl", "evals/samples/harness-dev.jsonl", "evals/samples/train.jsonl", "evals/README.md", "src/index.ts"]) {
+			assert.equal(matchingGlob(file, read), undefined, `${file} must stay readable`);
+		}
+	});
+
+	it("keeps the command rule for the held-out splits", () => {
+		const { commands } = loadTemplate();
+		for (const command of ["pnpm eval --split test", "pnpm eval --split=holdout", "pnpm eval --split gaps"]) {
+			assert.ok(
+				commands.some((rule) => rule.pattern.test(command)),
+				command,
+			);
+		}
+		assert.ok(!commands.some((rule) => rule.pattern.test("pnpm eval --split dev")), "the dev split stays runnable");
+	});
+
+	it("write-protects the repository rules and the milestone briefs", () => {
+		const { write } = loadTemplate();
+		for (const file of ["CLAUDE.md", "AGENTS.md", "docs/milestones/M1.md"]) assert.ok(matchingGlob(file, write), file);
+		assert.equal(matchingGlob("src/index.ts", write), undefined);
 	});
 });

@@ -1,9 +1,10 @@
 {
-  "$comment": "pecker-nest safety gate rules for undertext. Copy to .pi/protect.json before nest works on a milestone. Assumes held-out samples live in their own files (evals/samples/test*.jsonl etc.); adjust the globs if they do not.",
+  "$comment": "pecker-nest safety gate rules for undertext. Copy to .pi/protect.json before nest works on a milestone. The read globs cover undertext's real held-out files (evals/samples/harness-holdout.jsonl and harness-gaps.jsonl from undertext PR #2) plus a test split that does not exist yet, and the converter's mapping in evals/import/, which names their sources.",
   "read": [
-    "evals/samples/test*.jsonl",
-    "evals/samples/holdout*.jsonl",
-    "evals/samples/gaps*.jsonl"
+    "evals/samples/*test*.jsonl",
+    "evals/samples/*holdout*.jsonl",
+    "evals/samples/*gaps*.jsonl",
+    "evals/import/**"
   ],
   "write": [
     "CLAUDE.md",

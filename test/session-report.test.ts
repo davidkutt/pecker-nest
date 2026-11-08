@@ -39,7 +39,11 @@ function assistant(model: string, tools: { name: string; args: unknown }[] = [],
 	};
 }
 const result = (toolName: string, isError = false, text = "ok"): Entry => ({ type: "message", message: { role: "toolResult", toolName, isError, content: [{ type: "text", text }] } });
-const state = (tier: string, why: string): Entry => ({ type: "custom", customType: "pi.virtual-model-state", data: { provider: "router", modelId: "escalate", state: { tier, why } } });
+const state = (tier: string, why: string, strong?: string): Entry => ({
+	type: "custom",
+	customType: "pi.virtual-model-state",
+	data: { provider: "router", modelId: "escalate", state: { tier, why, ...(strong ? { strong } : {}) } },
+});
 const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 const GLM = "z-ai/glm-5.3";
 
@@ -85,8 +89,10 @@ describe("addEntries", () => {
 		assert.ok(Math.abs(totalCost(stats) - 0.085) < 1e-9);
 		assert.match(stats.requestErrors[0], /No endpoints found/);
 	});
-	it("counts switches to GLM by reason, once per switch", () => {
+	it("counts switches by reason and by strong model, once per switch", () => {
+		// The fixture uses the pre-/strong tier name `glm`, which still reads as a switch to GLM.
 		assert.deepEqual(stats.escalations, { loop: 1 });
+		assert.deepEqual(stats.escalationsByModel, { glm: 1 });
 	});
 	it("counts tools, failed edits, loops and safety blocks apart", () => {
 		assert.deepEqual(stats.tools.bash, { calls: 3, failed: 3, blocked: 0 });
@@ -105,6 +111,55 @@ describe("addEntries", () => {
 		assert.equal(withChild.prompts, 2);
 		assert.equal(withChild.checkpoints, 1);
 		assert.equal(withChild.agents.worker.requests, 8);
+	});
+});
+
+describe("addEntries counts the strong model", () => {
+	const KIMI = "moonshotai/kimi-k3.1-pro";
+	it("counts a switch to Kimi under its own name", () => {
+		const stats = addEntries(emptyStats(), [
+			user("/plan M1 step 2"),
+			state("strong", "plan", "kimi"),
+			assistant(KIMI),
+			user("build it"),
+			state("flash", "default", "kimi"),
+			assistant(FLASH),
+			state("strong", "gate", "kimi"),
+			assistant(KIMI),
+		]);
+		assert.deepEqual(stats.escalations, { plan: 1, gate: 1 });
+		assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
+		assert.equal(stats.models[KIMI].requests, 2);
+	});
+	it("keeps the two strong models apart in one session", () => {
+		const stats = addEntries(emptyStats(), [
+			user("/plan on glm"),
+			state("strong", "plan"),
+			assistant(GLM),
+			user("/strong kimi then /plan"),
+			state("flash", "default", "kimi"),
+			assistant(FLASH),
+			state("strong", "plan", "kimi"),
+			assistant(KIMI),
+		]);
+		assert.deepEqual(stats.escalations, { plan: 2 });
+		assert.deepEqual(stats.escalationsByModel, { glm: 1, kimi: 1 });
+	});
+	it("reads a session written before /strong existed as GLM", () => {
+		const stats = addEntries(emptyStats(), [user("fix it"), state("glm", "stuck"), assistant(GLM)]);
+		assert.deepEqual(stats.escalations, { stuck: 1 });
+		assert.deepEqual(stats.escalationsByModel, { glm: 1 });
+	});
+	it("names both models in the report", () => {
+		const report = buildReport([]);
+		report.stats.escalations = { plan: 1, loop: 2 };
+		report.stats.escalationsByModel = { glm: 1, kimi: 2 };
+		const markdown = renderMarkdown(report);
+		assert.match(markdown, /Switches to the strong model: plan 1, loop 2\./);
+		assert.match(markdown, /By strong model: GLM 5\.3 1, Kimi K3\.1 Pro 2\./);
+	});
+	it("says so when nothing escalated", () => {
+		assert.match(renderMarkdown(buildReport([])), /No switch to the strong model/);
 	});
 });
 
@@ -132,7 +187,8 @@ describe("session files", () => {
 		assert.equal(report.sessions[0].subagentRuns, 1);
 		assert.equal(report.stats.agents.planner.requests, 1);
 		const markdown = renderMarkdown(report);
-		assert.match(markdown, /Switches to GLM 5\.3: loop 1\./);
+		assert.match(markdown, /Switches to the strong model: loop 1\./);
+		assert.match(markdown, /By strong model: GLM 5\.3 1\./);
 		assert.match(markdown, /Failed edits: 1 of 2 \(50%\)/);
 		assert.match(markdown, /By agent: main 8 req/);
 		assert.doesNotMatch(markdown, /add rule D1/, "prompts never appear in the report");

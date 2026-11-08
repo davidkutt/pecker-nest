@@ -6,7 +6,7 @@ Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026, das Update „G
 
 ## Stand
 
-Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 16 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
+Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 19 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
 
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in undertext (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
 | M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
-| M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, GLM für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard` | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen |
+| M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 M1-Schritten |
 | M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
 | M6 Headless | `Dockerfile.pi`, `pi-run.sh` (eigener Container-Key), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
 | Neu | – | Tests 12 (Provider-Routing) und 13 (Caching) |
@@ -66,9 +66,11 @@ docker --version      # für M6
    #   npm:pi-subagents@0.87.0
    ```
 
-   In Pi `/model` öffnen. Ausgewählt ist `router/escalate`; unter `openrouter` stehen `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`. Mit Ctrl+P schaltest du genau diese drei durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
+   In Pi `/model` öffnen. Ausgewählt ist `router/escalate`; unter `openrouter` stehen `deepseek/deepseek-v4.1-flash-1017`, `z-ai/glm-5.3` und `moonshotai/kimi-k3.1-pro`. Mit Ctrl+P schaltest du genau diese vier durch; die Muster in `enabledModels` mit den Schrägstrichen in den IDs sind getestet. Weitere Modelle (z. B. ein Claude- oder GPT-Modell als Reserve) holst du mit `/model openrouter/<id>`.
 
-   Fehlt eines der beiden Modelle, filtert es dein Konto heraus, meist wegen ZDR. Am ehesten trifft das `deepseek/deepseek-v4.1-flash-1017`: Diesen Stand bedienen weniger Provider als den vom September. Notfalls in `extensions/lib/router-logic.ts`, `agent/settings.json` und den Agenten `scout`/`worker` auf `deepseek/deepseek-v4.1-flash` zurückgehen. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
+   Kimi K3.1 Pro braucht der Router nur nach `/strong kimi` (M5). Fehlt es, läuft alles wie bisher auf GLM; fehlt GLM ebenfalls, bleibt der Router auf Flash und sagt es.
+
+   Fehlt eines der beiden anderen Modelle, filtert es dein Konto heraus, meist wegen ZDR. Am ehesten trifft das `deepseek/deepseek-v4.1-flash-1017`: Diesen Stand bedienen weniger Provider als den vom September. Notfalls in `extensions/lib/router-logic.ts`, `agent/settings.json` und den Agenten `scout`/`worker` auf `deepseek/deepseek-v4.1-flash` zurückgehen. Dann auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten (siehe „Wenn Anfragen scheitern“ unten).
 
    Abweichung vom Plan: `pi list` zeigt zwei Einträge, nicht einen. pi-subagents ist schon gepinnt.
 
@@ -192,14 +194,58 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-
 | `/plan …` samt seinen Tool-Aufrufen | GLM 5.3, `max` |
 | Quality Gate in Reparaturrunde 2 noch rot | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
 | Dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei oder fünf fehlgeschlagene Tool-Aufrufe in Folge | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
-| `/hard` | GLM 5.3, `high`, für alle Prompts bis `/flash` |
-| Bilder im Gespräch, oder GLM fehlt in deiner Modellliste | immer Flash (GLM 5.3 liest keine Bilder) |
+| `/hard` | das starke Modell, `high`, für alle Prompts bis `/flash` |
+| Bilder im Gespräch, und das starke Modell liest keine Bilder | immer Flash (GLM 5.3 liest keine Bilder, Kimi K3.1 Pro schon) |
+| Das starke Modell fehlt in deiner Modellliste | GLM 5.3, sonst Flash, mit einem Hinweis |
+
+„Das starke Modell“ ist GLM 5.3, bis du mit `/strong kimi` auf Kimi K3.1 Pro umschaltest:
+
+| Befehl | Wirkung |
+| --- | --- |
+| `/strong` | zeigt die aktuelle Wahl |
+| `/strong kimi` | der Router holt ab dem nächsten Prompt Kimi K3.1 Pro für `/plan`, Eskalationen und `/hard` |
+| `/strong glm` | zurück zum Standard GLM 5.3 |
+
+`/strong` schaltet nur um und sendet keine Nachricht, wie `/hard`; den Prompt tippst du danach. Die Wahl steht im Router-State, folgt also `/tree` und übersteht Neustarts. Flash bleibt in jedem Fall das Arbeitsmodell, und der Reviewer bleibt auf GLM (für den Review-Vergleich siehe den Lauf-Override unten).
 
 Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nach Fehlern bleiben auf dem Modell, das scheiterte. Jeder Wechsel kostet einen Prompt-Cache-Miss.
 
 1. **Test 9:** Eine Aufgabe von `/plan` bis Umsetzung. Die Fußzeile zeigt erst `escalate • high → z-ai/glm-5.3 • max`, beim nächsten Prompt `… → deepseek/deepseek-v4.1-flash-1017 • high`. Jeder Wechsel erscheint als Hinweis `router: …`.
 2. Nach ein paar Sessions die Session-Reports ansehen (Abschnitt „Router“ und „Tools“): Wie oft musste GLM einspringen, und warum? Springt GLM zu oft ein, ist Flash für die Aufgabe zu schwach (dann `/hard` für solche Aufgaben). Springt GLM nie ein, obwohl Flash hängt, sind die Schwellen zu hoch. Die Schwellen stehen in `extensions/lib/router-logic.ts`.
 3. Ohne Router arbeiten: `/model openrouter/deepseek/deepseek-v4.1-flash-1017` oder `/model openrouter/z-ai/glm-5.3`. Pi schreibt die Auswahl in `agent/settings.json` (Symlink); `git checkout agent/settings.json` stellt den Standard wieder her.
+
+### Modellvergleich GLM gegen Kimi (👤 an 2–3 M1-Schritten)
+
+Entschieden am 08.11.: Kimi K3.1 Pro wird an zwei, drei Schritten gegen GLM 5.3 getestet, GLM bleibt der Standard. Nimm echte M1-Schritte, keine erfundenen Aufgaben, und möglichst solche, bei denen GLM sich bisher schwer getan hat. Claude Code trägt die Ergebnisse in die Feldnotiz ein (`/nest-handoff`, Abschnitt „Model comparison“).
+
+**Vergleich beim Planen** (je Schritt):
+
+```text
+/plan <Schritt>                    # läuft auf GLM 5.3 (Standard)
+```
+```bash
+cp PLAN.md PLAN.glm.md             # im Terminal oder mit !cp in Pi
+```
+```text
+/new                               # frische Session, damit Kimi denselben Ausgangspunkt hat
+/strong kimi
+/plan <derselbe Schritt>           # läuft jetzt auf Kimi K3.1 Pro
+```
+
+Dann `PLAN.glm.md` und `PLAN.md` vergleichen: Findet der Plan die echte Einschränkung? Sind die Schritte einzeln umsetzbar und prüfbar? Danach `/strong glm`, damit der Standard wieder gilt. `PLAN.glm.md` nicht committen.
+
+**Vergleich beim Review** (derselbe Diff, zweimal):
+
+```text
+/run reviewer "<Aufgabe: prüfe den Diff gegen AGENTS.md und die Tests>"
+/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:high] "<dieselbe Aufgabe>"
+```
+
+Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `high`), der zweite überschreibt das Modell nur für diesen Lauf; `agent/agents/reviewer.md` bleibt unverändert. Verglichen wird, wer die echten Fehler findet und wer Fehlalarme produziert, nicht wer mehr schreibt.
+
+**Kosten:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd "$PWD"` zeigt sie je Modell, der Abschnitt „Router“ zählt die Wechsel je starkem Modell. Kimi kostet beim Output gut das Doppelte von GLM; der Vergleich muss also einen klaren Vorteil zeigen, nicht nur einen Unterschied.
+
+**Entscheidung** nach 2–3 Schritten im Planungschat: GLM bleibt Standard, oder Kimi wird es (dann `DEFAULT_STRONG` in `extensions/lib/router-logic.ts` und die Rollen in `agent/agents/` umstellen), oder Kimi bleibt als Option für harte Schritte.
 
 ## M6 – Headless im Container (👤 ca. 30 Minuten)
 
@@ -246,7 +292,7 @@ Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pec
    cp ~/dev/pecker-nest/templates/undertext/protect.json ~/dev/undertext/.pi/protect.json
    ```
 
-   Sie verbieten dem Agenten, die zurückgehaltenen Splits zu lesen oder zu schreiben (`evals/samples/test*.jsonl`, `holdout*`, `gaps*`), `CLAUDE.md` und die Milestone-Briefs zu ändern und `--split test|holdout|gaps` auszuführen. Die Globs setzen voraus, dass der Test-Split in einer eigenen Datei liegt; sonst anpassen. Die Datei gehört in den ersten M1-PR.
+   Sie verbieten dem Agenten, die zurückgehaltenen Samples zu lesen oder zu schreiben (`evals/samples/*test*.jsonl`, `*holdout*`, `*gaps*`, dazu `evals/import/**`, weil das Mapping des Konverters deren Quellen nennt), `CLAUDE.md` und die Milestone-Briefs zu ändern und `--split test|holdout|gaps` auszuführen. Die Globs passen zu undertexts echtem Layout (`harness-holdout.jsonl`, `harness-gaps.jsonl` aus PR #2) und greifen auch für Davids Test-Split, sobald er angelegt wird. Ein Unit-Test in pecker-nest prüft sie gegen diese Dateinamen. Die Datei gehört in den ersten M1-PR.
 3. Nach M1-Schritt 1 (pnpm-Workspace steht) das Gate anlegen: `cp ~/dev/pecker-nest/templates/undertext/gate.json ~/dev/undertext/.pi/gate.json` (`pnpm lint && pnpm test`). Vorher würde jeder Gate-Lauf an fehlenden Skripten scheitern. Der Agent darf `.pi/` nicht schreiben; das machst du.
 4. In undertext `pi` starten und `/trust`.
 
@@ -296,5 +342,10 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (unde
 | 07.11.2026 | Testprojekte | Echte Arbeit statt Pilot-Repos: undertext M1, danach pecker-grove M3c.2. pecker-beak bleibt bei Claude Code. Kein synthetischer Benchmark. |
 | 07.11.2026 | undertext-Code über OpenRouter | Erlaubt, mit ZDR-Routing wie bisher. |
 | 07.11.2026 | Begleitung | Claude Code beobachtet jede nest-Session (`/nest-supervise`) und schreibt danach eine Übergabe (`/nest-handoff`) für den Planungschat. |
+| 08.11.2026 | Flash-Stand | `deepseek/deepseek-v4.1-flash-1017` (Stand 17.10.) statt des Stands vom 10.09., weil er bei Coding und Agent-Aufgaben besser ist, zum selben Preis. |
+| 08.11.2026 | Ersatz für GLM 5.3 | Kimi K3.1 Pro kommt als Option dazu (`/strong kimi`) und wird an 2–3 M1-Schritten gegen GLM getestet. GLM bleibt Standard, damit die Übergabezahlen vergleichbar bleiben. Entscheidung danach im Planungschat. |
+| 08.11.2026 | DeepSeek V4.1 Pro | Beobachten, kein Erscheinungsdatum. Nichts einbauen, bis es da ist. |
+| 08.11.2026 | Claude Codes Konfiguration | `${CLAUDE_CONFIG_DIR:-~/.claude}` gilt für das Safety-Gate als Harness: nest ändert die Einstellungen und Skills seines Aufsehers nicht. |
+| 08.11.2026 | PR für nests Arbeit | Claude Code darf auf Bitte pushen und den PR eröffnen (Kategorie `admin`, zählt nicht gegen nest). Mergen bleibt bei David. |
 
 Alle offenen Fragen des Plans sind damit entschieden.

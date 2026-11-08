@@ -24,6 +24,7 @@ import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
 const GLM = "z-ai/glm-5.3";
+const KIMI = "moonshotai/kimi-k3.1-pro";
 const FLASH = "deepseek/deepseek-v4.1-flash-1017";
 const ROUTING = { zdr: true, data_collection: "deny", require_parameters: true };
 const PI_ENV = { OPENROUTER_API_KEY: "sk-or-mock", PI_SKIP_VERSION_CHECK: "1", PI_OFFLINE: "1" };
@@ -73,6 +74,17 @@ function respond(request: MockRequest): Reply {
 		case "router-hard":
 		case "router-soft":
 			return say(`answered ${request.scenario}`);
+		case "strong-plan":
+			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Kimi plan\n" }) : say("planned on kimi");
+		case "strong-loop":
+			// The same failing command three times, then whatever the escalated model says.
+			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
+		case "strong-back":
+			return say("back on glm");
+		case "strong-missing":
+			return say("answered strong-missing");
+		case "reviewer-kimi":
+			return delegate(request, tool("subagent", { agent: "reviewer", task: "[scenario:reviewer-kimi] Review the diff.", async: false }));
 		case "protect":
 			return [
 				tool("bash", { command: "cat evals/holdout.jsonl" }),
@@ -154,6 +166,24 @@ function mockModelsJson(port: number, host = "127.0.0.1") {
 	const models = JSON.parse(readFileSync(join(NEST, "agent/models.json"), "utf-8"));
 	models.providers.openrouter.baseUrl = `http://${host}:${port}/api/v1`;
 	return models;
+}
+
+/**
+ * Entries from Pi's bundled OpenRouter catalog (grouped by API), so a test can write a
+ * models-store.json that holds only these models, as a key without ZDR access to the others would.
+ */
+function catalogModels(ids: readonly string[]): unknown[] {
+	const catalog = JSON.parse(readFileSync(join(NEST, "node_modules/@earendil-works/pi-ai/dist/providers/data/openrouter.json"), "utf-8")) as Record<
+		string,
+		Record<string, unknown>
+	>;
+	return ids.map((id) => {
+		const entry = Object.values(catalog)
+			.map((byApi) => byApi[`chat:${id}`])
+			.find((candidate) => candidate !== undefined);
+		if (!entry) throw new Error(`${id} is not in Pi's bundled OpenRouter catalog`);
+		return entry;
+	});
 }
 
 function makeRepo(name: string, files: Record<string, string>, gate = true): string {
@@ -271,7 +301,7 @@ const scenarios: [string, () => Promise<void>][] = [
 			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
 			assert.deepEqual(
 				scoped,
-				["router/escalate", `openrouter/${FLASH}`, `openrouter/${GLM}`],
+				["router/escalate", `openrouter/${FLASH}`, `openrouter/${GLM}`, `openrouter/${KIMI}`],
 				"enabledModels resolves the IDs with slashes, so Ctrl+P cycles exactly these",
 			);
 		},
@@ -411,6 +441,87 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.equal(run.code, 0, run.stderr);
 			assert.deepEqual(requestsFor("router-hard").map((request) => request.model), [GLM, GLM]);
 			assert.deepEqual(requestsFor("router-soft").map((request) => request.model), [FLASH]);
+		},
+	],
+	[
+		"/strong kimi runs /plan and escalations on Kimi K3.1 Pro, /strong glm goes back (08.11. comparison)",
+		async () => {
+			const repo = makeRepo("strong", {}, false);
+			const run = await runPi(repo, [
+				"-p",
+				"/strong",
+				"/strong nope",
+				"/strong kimi",
+				"/plan the next step [scenario:strong-plan]",
+				"[scenario:strong-loop] run the script",
+				"/strong glm",
+				"[scenario:strong-back] go on",
+			]);
+			// /strong without an argument reports, a bad argument is refused; neither sends a prompt.
+			assert.equal(run.code, 0, run.stderr);
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("strong-plan"), [`${KIMI}:max`, `${KIMI}:max`], "/plan runs on Kimi at max, including its tool calls");
+			assert.deepEqual(routed("strong-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:high`], "a loop escalates to Kimi, not GLM");
+			assert.deepEqual(routed("strong-back"), [`${FLASH}:high`], "/strong glm alone does not escalate");
+			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at max \(plan\)/);
+			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at high \(loop: the same bash call 3 times in a row\)/);
+			assert.ok(!requestsFor("strong-plan").some((request) => request.model === GLM), "GLM is not called while kimi is selected");
+			assert.ok(!requestsFor("strong-loop").some((request) => request.model === GLM));
+			for (const request of requestsFor("strong-plan")) assert.deepEqual(request.routing, ROUTING, "Kimi gets the same provider routing");
+			const sessions = new Set(mock.requests.filter((request) => request.scenario?.startsWith("strong-")).map((request) => request.sessionId));
+			assert.equal(sessions.size, 1, "switching the strong model keeps the session id");
+			// The session report attributes the switches to Kimi.
+			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
+				encoding: "utf-8",
+				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+			});
+			assert.equal(report.status, 0, report.stderr);
+			const { stats } = JSON.parse(report.stdout);
+			assert.deepEqual(stats.escalations, { plan: 1, loop: 1 });
+			assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
+			assert.ok(stats.models[KIMI].requests > 0, "Kimi appears in the model table");
+		},
+	],
+	[
+		"a missing Kimi falls back to GLM 5.3 with one notice, and never throws",
+		async () => {
+			const repo = makeRepo("strong-missing", {}, false);
+			// What ZDR leaving Kimi without a provider looks like: the catalog Pi refreshed for
+			// this key (models-store.json, written by `pi update --models`) has Flash and GLM only.
+			const store = join(agentDir, "models-store.json");
+			writeFileSync(store, JSON.stringify({ openrouter: { models: catalogModels([FLASH, GLM]), checkedAt: Date.now() } }));
+			try {
+				const run = await runPi(repo, ["-p", "/strong kimi", "/plan the next step [scenario:strong-missing]"]);
+				assert.equal(run.code, 0, run.stderr);
+				const routed = requestsFor("strong-missing").map((request) => `${request.model}:${request.effort}`);
+				assert.deepEqual(routed, [`${GLM}:max`], "the plan runs on GLM instead of Kimi");
+				assert.match(run.stderr, /\[router\] openrouter\/moonshotai\/kimi-k3\.1-pro is not available; using GLM 5\.3 instead/);
+				assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(plan\)/);
+				assert.doesNotMatch(run.stderr, /router\/escalate: n(either|one)/, "the router does not throw");
+			} finally {
+				rmSync(store, { force: true });
+			}
+		},
+	],
+	[
+		"a per-run override reviews the diff on Kimi while the reviewer role stays on GLM",
+		async () => {
+			const repo = makeRepo("reviewer-kimi", { "src/a.ts": "export const a = 1;\n" }, false);
+			// /run needs a live session, like /prompt-workflow, so this runs over RPC like the TUI.
+			await runPiRpc(repo, `/run reviewer[model=openrouter/${KIMI}:high] [scenario:reviewer-kimi] review the diff`, () =>
+				requestsFor("reviewer-kimi").some((request) => agentRole(request) === "reviewer"),
+			);
+			const reviewer = requestsFor("reviewer-kimi").filter((request) => agentRole(request) === "reviewer");
+			assert.ok(reviewer.length >= 1, "the reviewer ran");
+			assert.ok(
+				reviewer.every((request) => request.model === KIMI && request.effort === "high"),
+				`the per-run override puts the reviewer on Kimi at high, got ${reviewer.map((r) => `${r.model}:${r.effort}`).join(", ")}`,
+			);
+			for (const request of reviewer) assert.deepEqual(request.routing, ROUTING);
+			const reviewerTools = reviewer[0].toolNames;
+			for (const writer of ["edit", "write", "bash"]) assert.ok(!reviewerTools.includes(writer), `reviewer has ${writer}`);
+			// The role itself is unchanged: without the override the reviewer runs on GLM (assertChain).
+			assert.match(readFileSync(join(NEST, "agent/agents/reviewer.md"), "utf-8"), new RegExp(`^model: openrouter/${GLM}$`, "m"), "the reviewer role stays on GLM");
 		},
 	],
 	[
