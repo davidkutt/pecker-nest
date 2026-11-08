@@ -16,6 +16,11 @@ These rules apply in every repository. A repository's `AGENTS.md` adds project r
 - After your turn, a quality gate may run the check command and send failures back to you. Fix the cause it reports; do not argue with the gate.
 - If a check fails for a reason outside the task (missing dependency, network, broken main branch), stop and say so instead of working around it.
 
+## Longer tasks
+
+- For a task with more than three steps, keep a list with the `todo` tool and tick items off as you finish them.
+- When you need a decision from the user and the options are clear, ask with the `questionnaire` tool in an interactive session and put your recommendation first.
+
 ## Knowledge base first
 
 - When a question touches project conventions, architecture decisions, APIs or best practices, search the knowledge base (`mcp__kb__*` tools) before answering from memory, and name the source you used.

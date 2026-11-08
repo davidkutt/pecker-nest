@@ -3,6 +3,8 @@
 #
 #   scripts/link.sh            link into ${PI_CODING_AGENT_DIR:-~/.pi/agent}
 #   scripts/link.sh --check    only report what is linked, change nothing
+#   scripts/link.sh --claude   also link the Claude Code skills (nest-supervise, nest-handoff)
+#                              into ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
 #
 # Existing regular files are moved aside as <name>.bak.<timestamp>, never deleted.
 # auth.json, sessions and other runtime state stay where they are.
@@ -11,8 +13,16 @@ set -euo pipefail
 NEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 EXPECTED_DIR="$HOME/dev/pecker-nest"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CHECK_ONLY=0
-[[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+LINK_CLAUDE=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) CHECK_ONLY=1 ;;
+    --claude) LINK_CLAUDE=1 ;;
+    *) echo "usage: scripts/link.sh [--check] [--claude]" >&2; exit 2 ;;
+  esac
+done
 
 # agent/settings.json loads the package from ~/dev/pecker-nest. A clone elsewhere would
 # link settings that point at a missing package.
@@ -54,5 +64,14 @@ done
 for file in "$NEST_DIR"/agent/prompts/*.md; do
   link "$file" "$AGENT_DIR/prompts/$(basename "$file")"
 done
+
+# Claude Code skills for supervising nest sessions and writing handoffs (field-notes/README.md).
+if (( LINK_CLAUDE )); then
+  (( CHECK_ONLY )) || mkdir -p "$CLAUDE_DIR/skills"
+  for dir in "$NEST_DIR"/claude/skills/*/; do
+    dir="${dir%/}"
+    link "$dir" "$CLAUDE_DIR/skills/$(basename "$dir")"
+  done
+fi
 
 exit "$status"

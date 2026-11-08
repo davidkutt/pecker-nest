@@ -11,19 +11,19 @@ Drei Repos, alle unter `github.com/davidkutt`:
 | Repo | Was es ist | Wohin |
 | --- | --- | --- |
 | `pecker-nest` | Die Pi-Konfiguration aus dem Plan (dort `pi-config`): Gates, Router, Subagent-Rollen, Prompts, Skills, Docker | `~/dev/pecker-nest`, genau dieser Pfad |
-| `pecker-api` | TypeScript-Pilot: Gerüst mit einem kleinen Modul und Tests | `~/dev/pecker-api` |
-| `pecker-ml` | Python-Pilot: Gerüst mit einem kleinen Modul und Tests | `~/dev/pecker-ml` |
+| `pecker-api` | TypeScript-Pilot: Gerüst mit einem kleinen Modul und Tests (seit 07.11. nur noch Testmaterial; echte Arbeit läuft in undertext, siehe Runbook M7) | `~/dev/pecker-api` |
+| `pecker-ml` | Python-Pilot: Gerüst mit einem kleinen Modul und Tests (ebenso) | `~/dev/pecker-ml` |
 
 So hängt es zusammen:
 
 - Pi liest seine Konfiguration aus `~/.pi/agent`. `scripts/link.sh` ersetzt dort `settings.json`, `models.json`, `APPEND_SYSTEM.md`, `mcp.json` und einige Prompts durch Symlinks auf `pecker-nest/agent/`. Ab dann gilt: Was im Repo steht, gilt in Pi.
-- Die Modelle laufen über OpenRouter: GLM 5.3 als Hauptmodell, DeepSeek V4 Pro als Reviewer, DeepSeek V4 Flash als Scout. OpenRouter routet nur an Provider mit Zero Data Retention.
+- Die Modelle laufen über OpenRouter (Strategie A): DeepSeek V4.1 Flash arbeitet, GLM 5.3 plant, prüft und springt ein, wenn Flash hängt. Das Standardmodell `router/escalate` entscheidet je Anfrage. OpenRouter routet nur an Provider mit Zero Data Retention.
 - Für Headless-Läufe baust du ein Docker-Image, das eine Kopie von `pecker-nest` enthält.
 
 ## 1. Voraussetzungen prüfen (10 Minuten)
 
 ```bash
-pi --version       # mindestens 1.4.0
+pi --version       # mindestens 1.5.0
 node --version     # mindestens 22.18
 git --version
 pnpm --version     # 10.x
@@ -33,7 +33,7 @@ docker --version   # Docker Desktop muss laufen
 
 | Fehlt oder zu alt | So bekommst du es |
 | --- | --- |
-| Pi älter als 1.4.0 | `pi update` |
+| Pi älter als 1.5.0 | `pi update` |
 | Node | `brew install node` (jede Version ab 22.18) |
 | pnpm | `npm install -g pnpm@10` |
 | uv | `brew install uv` |
@@ -65,17 +65,20 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | Datei | Was sie tut | Worauf achten |
 | --- | --- | --- |
 | `README.md` | Überblick und Verzeichnisstruktur | – |
-| `agent/settings.json` | Modelle, Tools, Packages, Subagent-Standards | Standardmodell, gepinnte Version von pi-subagents |
+| `agent/settings.json` | Modelle, Tools, Kompaktierung, Packages, Subagent-Standards | Standardmodell, gepinnte Version von pi-subagents |
 | `agent/models.json` | OpenRouter-Routing: `zdr`, `data_collection: deny`, `require_parameters` | Stimmt das mit deiner Datenschutz-Entscheidung überein? |
 | `agent/APPEND_SYSTEM.md` | Globale Arbeitsregeln für das Modell | Passen sie zu deiner Arbeitsweise? |
-| `extensions/safety-gate.ts`, `extensions/lib/safety-rules.ts` | Blockiert `rm -rf`, `git push`, `git reset --hard`, `curl … \| sh`, Schreiben auf `.env` und Secrets | Fehlt dir etwas, oder ist etwas zu streng? |
+| `extensions/safety-gate.ts`, `extensions/lib/safety-rules.ts`, `extensions/lib/protect-config.ts` | Blockiert `rm -rf`, `git push`, `git reset --hard`, `curl … \| sh`, Schreiben auf `.env`, Secrets, `.pi/` und die Harness selbst; wendet `.pi/protect.json` je Repo an | Fehlt dir etwas, oder ist etwas zu streng? |
 | `extensions/quality-gate.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden | Läuft nur in Repos, denen du vertraust (`/trust`) |
-| `extensions/router.ts` | Virtuelles Modell `router/phased`: GLM 5.3 plant auf `max`, baut auf `high` | – |
+| `extensions/router.ts`, `extensions/lib/router-logic.ts` | Virtuelles Modell `router/escalate`: Flash für jeden Prompt, GLM für `/plan`, ein rotes Gate in Runde 2, Schleifen und `/hard` | Die Schwellen in `router-logic.ts` |
+| `extensions/checkpoint.ts`, `extensions/lib/checkpoint.ts` | Git-Checkpoint vor jedem Prompt, `/rewind` | Ruft `git` auf, schreibt nur Refs unter `refs/nest/checkpoints/` |
+| `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
+| `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus |
 | `agent/agents/*.md` | Die vier Rollen `scout`, `planner`, `worker`, `reviewer` | Modell und Tools je Rolle |
 | `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht |
 | `docs/v1-notes.md` | Abweichungen vom Plan, Prüfung von pi-subagents, was nicht getestet ist | – |
 
-Fremdcode: `pi-subagents@0.83.1` von npm. Was ich daran geprüft habe, steht in `docs/v1-notes.md` im Abschnitt „pi-subagents“.
+Fremdcode: `pi-subagents@0.87.0` von npm, dazu zwei unveränderte Beispiele aus Pi (`extensions/vendor/`) und der Skill `grill-me` nach Matt Pocock (MIT). Was ich daran geprüft habe, steht in `docs/v1-notes.md` im Abschnitt „pi-subagents“.
 
 ### Optional: die Tests des Repos laufen lassen (10 Minuten, keine Kosten)
 
@@ -101,8 +104,10 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
 2. Verlinken:
 
    ```bash
-   ~/dev/pecker-nest/scripts/link.sh
+   ~/dev/pecker-nest/scripts/link.sh --claude
    ```
+
+   `--claude` verlinkt zusätzlich die Claude-Code-Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/` (Runbook M7). Ohne die Option bleibt Claude Code unberührt.
 
    Das Skript löscht nichts. Vorhandene Dateien benennt es in `<name>.bak.<zeitstempel>` um und zeigt jede Aktion an. `auth.json` und deine Sessions bleiben, wo sie sind. Hattest du in der alten `settings.json` eigene Packages oder Einstellungen, übernimm sie in `~/dev/pecker-nest/agent/settings.json`.
 
@@ -123,9 +128,9 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    Der Browser öffnet sich; danach lädt Pi die Modelle, die dein Konto nutzen darf.
 
 4. Kontrolle:
-   - `/model` zeigt unter `openrouter` `z-ai/glm-5.3`, `deepseek/deepseek-v4-pro-0813` und `deepseek/deepseek-v4-flash-0731`, dazu `router/phased`.
+   - `/model` zeigt `router/escalate` (ausgewählt) und unter `openrouter` `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`.
    - Fehlt eines davon, lässt dein ZDR-Filter es nicht zu. Siehe „Häufige Probleme“ unten.
-   - In der Shell zeigt `pi list` zwei Packages: `~/dev/pecker-nest` und `npm:pi-subagents@0.83.1`.
+   - In der Shell zeigt `pi list` zwei Packages: `~/dev/pecker-nest` und `npm:pi-subagents@0.87.0`.
 
 5. Kurzer Rauchtest mit echtem Modell (kostet weniger als einen Cent):
 
@@ -189,9 +194,9 @@ export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit 20 $ Limit
 
 ## 7. Wie es weitergeht
 
-1. **Abnahmetests:** [Runbook](RUNBOOK.md), Tests 1–13 in beiden Pilot-Repos.
-2. **Knowledge Base eintragen:** Runbook, M3. Das geht mit `pi mcp add kb …`.
-3. **Router ausprobieren:** Runbook, M5. Dort wählst du `/model router/phased`.
+1. **Dogfooding:** [Runbook](RUNBOOK.md), M7: undertext M1 mit nest bauen, Claude Code begleitet und schreibt Übergaben. Die Abnahmetests 1–13 laufen dabei mit.
+2. **Router verstehen:** Runbook, M5. `router/escalate` ist schon Standard.
+3. **Knowledge Base eintragen:** Runbook, M3. Das geht mit `pi mcp add kb …`.
 
 ## Häufige Probleme
 

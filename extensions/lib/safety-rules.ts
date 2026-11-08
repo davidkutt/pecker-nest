@@ -1,4 +1,6 @@
+import { homedir } from "node:os";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { type CommandRule, globToRegExp, hasGlob, matchingGlob, PROTECT_CONFIG_PATH } from "./protect-config.ts";
 
 /**
  * Pure decision logic for safety-gate.ts. Every check returns a reason string when the
@@ -21,13 +23,85 @@ const SECRET_FILE_NAMES = new Set([
 	"id_ed25519",
 ]);
 const SECRET_DIRS = new Set([".git", ".ssh", ".aws", ".gnupg"]);
+/** Harness configuration: a repo's gate, protection rules and settings, and Pi's agent directory. */
+const HARNESS_DIR = ".pi";
 const SECRET_EXTENSIONS = /\.(pem|key|p12|pfx|jks|keystore)$/i;
 const SECRET_NAMES = /^(secrets?|\.secrets?)(\..+)?$|\.secrets?$/i;
 
-/** Reason why `path` must not be written, or undefined when it is not protected. */
-export function protectedPathReason(path: string): string | undefined {
-	const cleaned = path.trim().replace(/^["']|["']$/g, "");
+/**
+ * Repository rules from `.pi/protect.json` plus the harness's own directories. Built by
+ * safety-gate.ts for each tool call; the rules here stay pure.
+ */
+export interface PathPolicy {
+	/** Repository root: the directory that holds `.pi/`. */
+	cwd: string;
+	/** Repository-relative globs the agent must not write. */
+	write: readonly string[];
+	/** Repository-relative globs the agent must neither read nor write. */
+	read: readonly string[];
+	/** Existing files that match `read`, repository-relative, for wildcard and output checks. */
+	readFiles?: readonly string[];
+	/** Bash commands the agent must not run. */
+	commands?: readonly CommandRule[];
+	/** Absolute, canonical directories of the harness itself (this package, Pi's agent directory). */
+	harnessDirs: readonly string[];
+	/** Resolves symlinks; defaults to the path itself. */
+	canonical?: (absolute: string) => string;
+}
+
+function unquote(path: string): string {
+	return path.trim().replace(/^["']|["']$/g, "");
+}
+
+/** Absolute path for a tool or shell argument, with `~` and `$HOME` expanded. */
+function absolutePath(path: string, cwd: string): string {
+	const expanded = path.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, homedir());
+	return isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
+}
+
+/** Repository-relative `/` path, or undefined when `path` lies outside the repository. */
+function repoPath(path: string, policy: PathPolicy): string | undefined {
+	const canonical = policy.canonical ?? ((value: string) => value);
+	const rel = relative(canonical(policy.cwd), canonical(absolutePath(path, policy.cwd)));
+	if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+	return rel.split(sep).join("/");
+}
+
+function harnessReason(path: string, policy: PathPolicy): string | undefined {
+	const canonical = policy.canonical ?? ((value: string) => value);
+	const target = canonical(absolutePath(path, policy.cwd));
+	const dir = policy.harnessDirs.find((candidate) => target === candidate || target.startsWith(candidate + sep));
+	return dir ? `${path} is part of the agent harness (${dir}); change the harness outside pi` : undefined;
+}
+
+/** Reason why `path` must not be read under the repository's rules, or undefined. */
+export function protectedReadReason(path: string, policy: PathPolicy): string | undefined {
+	const rel = repoPath(unquote(path), policy);
+	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.read);
+	return glob ? `${rel} is protected by ${PROTECT_CONFIG_PATH} (read: ${glob})` : undefined;
+}
+
+function policyWriteReason(path: string, policy: PathPolicy): string | undefined {
+	const harness = harnessReason(path, policy);
+	if (harness) return harness;
+	const read = protectedReadReason(path, policy);
+	if (read) return read;
+	const rel = repoPath(path, policy);
+	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.write);
+	return glob ? `${rel} is protected by ${PROTECT_CONFIG_PATH} (write: ${glob})` : undefined;
+}
+
+/**
+ * Reason why `path` must not be written, or undefined when it is not protected. Without a policy
+ * only the built-in rules apply (secrets, `.env*`, `.git/`, `.pi/`).
+ */
+export function protectedPathReason(path: string, policy?: PathPolicy): string | undefined {
+	const cleaned = unquote(path);
 	if (!cleaned) return undefined;
+	return builtInPathReason(cleaned) ?? (policy ? policyWriteReason(cleaned, policy) : undefined);
+}
+
+function builtInPathReason(cleaned: string): string | undefined {
 	const segments = cleaned.split(/[\\/]+/).filter(Boolean);
 	const name = basename(cleaned);
 	if (/^\.env(\..+)?$/.test(name) && !TEMPLATE_ENV_FILES.has(name)) {
@@ -39,6 +113,9 @@ export function protectedPathReason(path: string): string | undefined {
 	}
 	if (SECRET_FILE_NAMES.has(name) || SECRET_EXTENSIONS.test(name) || SECRET_NAMES.test(name)) {
 		return `${cleaned} looks like a credential or secret file`;
+	}
+	if (segments.includes(HARNESS_DIR)) {
+		return `${cleaned} is inside ${HARNESS_DIR}/, the harness configuration (gate, protection rules, settings); the user changes it`;
 	}
 	return undefined;
 }
@@ -152,7 +229,7 @@ function pathArgs(args: string[]): string[] {
 	return args.filter((arg) => !arg.startsWith("-"));
 }
 
-function writeTargetReason(program: string, args: string[]): string | undefined {
+function writeTargetReason(program: string, args: string[], policy?: PathPolicy): string | undefined {
 	let targets: string[] = [];
 	if (WRITES_ALL_ARGS.has(program)) targets = pathArgs(args);
 	else if (WRITES_LAST_ARG.has(program)) targets = pathArgs(args).slice(-1);
@@ -162,54 +239,113 @@ function writeTargetReason(program: string, args: string[]): string | undefined 
 		targets = args.filter((arg) => arg.startsWith("of=")).map((arg) => arg.slice(3));
 	}
 	for (const target of targets) {
-		const reason = protectedPathReason(target);
+		const reason = protectedPathReason(target, policy);
 		if (reason) return `${program} would modify ${reason}`;
 	}
 	return undefined;
 }
 
-function redirectReason(command: string): string | undefined {
+function redirectReason(command: string, policy?: PathPolicy): string | undefined {
 	const unquoted = command.replace(/["']/g, "");
 	for (const match of unquoted.matchAll(/(?:&>>?|\d?>>?\|?)\s*([^\s;&|<>()]+)/g)) {
 		const target = match[1];
 		if (target.startsWith("&") || target === "/dev/null") continue;
-		const reason = protectedPathReason(target);
+		const reason = protectedPathReason(target, policy);
 		if (reason) return `redirect would write ${reason}`;
 	}
 	return undefined;
 }
 
+/**
+ * Whether any word of the command names a read-protected file: directly, through a wildcard that
+ * matches an existing protected file, or by the bare file name. A tripwire against reading the
+ * files by accident, not a sandbox: `cd dir && cat "$(ls)"` gets through, and safety-gate.ts
+ * also removes protected paths from tool output.
+ */
+function readReason(command: string, policy: PathPolicy): string | undefined {
+	if (!policy.read.length) return undefined;
+	const files = policy.readFiles ?? [];
+	const names = new Set(files.map((file) => basename(file)));
+	for (const word of splitCommands(command).flat()) {
+		for (const candidate of [word, word.slice(word.indexOf("=") + 1), word.replace(/^[@<]+/, "")]) {
+			if (!candidate || !/[./*?]/.test(candidate)) continue;
+			if (hasGlob(candidate)) {
+				const rel = repoPath(candidate, policy);
+				const pattern = rel === undefined ? undefined : globToRegExp(rel);
+				const hit = pattern && files.find((file) => pattern.test(file));
+				if (hit) return `the command would read ${hit}, which is protected by ${PROTECT_CONFIG_PATH}`;
+				continue;
+			}
+			const reason = protectedReadReason(candidate, policy);
+			if (reason) return `the command would read ${reason}`;
+			if (!candidate.includes("/") && names.has(candidate)) {
+				return `the command names ${candidate}, a file protected by ${PROTECT_CONFIG_PATH}`;
+			}
+		}
+	}
+	return undefined;
+}
+
+function commandRuleReason(command: string, rules: readonly CommandRule[]): string | undefined {
+	const unquoted = command.replace(/["']/g, "");
+	const rule = rules.find((candidate) => candidate.pattern.test(unquoted));
+	return rule ? `${rule.reason} (${PROTECT_CONFIG_PATH})` : undefined;
+}
+
 /** Reason why a bash command must not run, or undefined when it may run. */
-export function bashCommandReason(command: string): string | undefined {
+export function bashCommandReason(command: string, policy?: PathPolicy): string | undefined {
 	const unquoted = command.replace(/["']/g, "");
 	if (DOWNLOAD_INTO_SHELL.some((pattern) => pattern.test(unquoted))) {
 		return "piping a download into a shell or interpreter is blocked";
 	}
-	const redirect = redirectReason(command);
+	if (policy) {
+		const rule = commandRuleReason(command, policy.commands ?? []);
+		if (rule) return rule;
+	}
+	const redirect = redirectReason(command, policy);
 	if (redirect) return redirect;
 	for (const words of splitCommands(command)) {
 		// `find … -exec rm -rf {} ;` runs a second command inside the first.
 		const execAt = words.findIndex((word) => word === "-exec" || word === "-execdir" || word === "-ok");
 		const candidates = execAt >= 0 ? [words, words.slice(execAt + 1)] : [words];
 		for (const candidate of candidates) {
-			const reason = simpleCommandReason(candidate);
+			const reason = simpleCommandReason(candidate, policy);
 			if (reason) return reason;
 		}
 	}
-	return undefined;
+	return policy ? readReason(command, policy) : undefined;
 }
 
-function simpleCommandReason(words: string[]): string | undefined {
+function simpleCommandReason(words: string[], policy?: PathPolicy): string | undefined {
 	const [first, ...args] = stripWrappers(words);
 	if (!first) return undefined;
 	const program = basename(first);
 	// `bash -c "…"` and `eval …` run their arguments as a command.
 	const commandAt = new RegExp(`^${SHELLS}$`).test(program) ? args.indexOf("-c") : -1;
-	if (commandAt >= 0) return simpleCommandReason(args.slice(commandAt + 1));
-	if (program === "eval") return simpleCommandReason(args);
+	if (commandAt >= 0) return simpleCommandReason(args.slice(commandAt + 1), policy);
+	if (program === "eval") return simpleCommandReason(args, policy);
 	return (
 		(program === "rm" ? rmReason(args) : undefined) ??
 		(program === "git" ? gitReason(args) : undefined) ??
-		writeTargetReason(program, args)
+		writeTargetReason(program, args, policy)
 	);
+}
+
+/**
+ * `text` without the lines that mention a read-protected file (grep matches, find results,
+ * `git grep` output), plus how many lines were removed. Files are matched by name, because tools
+ * print paths relative to where they searched (`samples/holdout.jsonl:7:` for `grep x evals`).
+ */
+export function redactProtectedLines(text: string, files: readonly string[]): { text: string; removed: number } {
+	const names = [...new Set(files.map((file) => basename(file)).filter(Boolean))];
+	if (!names.length) return { text, removed: 0 };
+	const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+	const pattern = new RegExp(`(?:^|[\\s/\\\\'"=:])(?:${escaped.join("|")})(?=$|[\\s:'",)-])`);
+	let removed = 0;
+	const kept = text.split("\n").filter((line) => {
+		const hit = pattern.test(line);
+		if (hit) removed++;
+		return !hit;
+	});
+	return { text: kept.join("\n"), removed };
 }
