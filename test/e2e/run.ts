@@ -335,6 +335,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			for (const name of ["todo", "questionnaire"]) assert.ok(requests[0].toolNames.includes(name), `the vendored ${name} tool is loaded`);
 			assert.match(requests[0].system, /testing-ts/, "package skills are listed");
 			assert.doesNotMatch(requests[0].system, /grill-me/, "grill-me is manual only");
+			assert.match(requests[0].system, /# Working principles/, "APPEND_SYSTEM.md is part of the system prompt");
+			// No instruction about tools that do not exist: the knowledge-base rule comes back with the server (RUNBOOK M3).
+			const kbServers = Object.keys(JSON.parse(readFileSync(join(NEST, "agent/mcp.json"), "utf-8")).mcpServers ?? {});
+			if (kbServers.length === 0) assert.doesNotMatch(requests[0].system, /mcp__kb__/, "the system prompt names knowledge-base tools although no MCP server is registered");
 			assert.equal(requests[1].sessionId, requests[0].sessionId, "one session id per session");
 			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
 			assert.deepEqual(

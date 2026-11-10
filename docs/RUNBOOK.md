@@ -13,7 +13,7 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
 | M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 in undertext (M7); die Pilot-Repos bleiben nur noch E2E-Material |
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in undertext (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
-| M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Tests 6–7 |
+| M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Abschnitt „Knowledge base first“ in `APPEND_SYSTEM.md` wieder einfügen, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
 | M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 M1-Schritten |
 | M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
@@ -159,10 +159,21 @@ Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Aut
 
    Wichtig: Ein Subagent mit `mcp:kb/…` startet nicht, solange der KB-Server nicht erreichbar ist (getestet), auf dem Host also nur bei laufendem Server. Im Container ist das abgefangen, siehe M6.
 
-4. `pi mcp list` ist grün. Dann `/reload` in laufenden Sessions.
-5. **Test 6:** Nach einer Projektkonvention fragen. Der Aufruf von `mcp__kb__…` ist sichtbar, die Antwort nennt die Quelle (Skill `best-practices`).
-6. **Test 7:** RAG-Server stoppen und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
-7. Committen.
+4. Die Regel für das Modell wieder eintragen. Solange in `agent/mcp.json` kein Server steht, verweist `agent/APPEND_SYSTEM.md` bewusst nicht auf die Knowledge Base (seit 10.11.): Sonst trüge jede Session eine Anweisung zu Tools, die es nicht gibt. Sobald `kb` eingetragen ist, diesen Abschnitt in `agent/APPEND_SYSTEM.md` vor „## Safety“ einfügen:
+
+   ```markdown
+   ## Knowledge base first
+
+   - When a question touches project conventions, architecture decisions, APIs or best practices, search the knowledge base (`mcp__kb__*` tools) before answering from memory, and name the source you used.
+   - If the knowledge base is unavailable, say so once and continue with what the repository shows.
+   ```
+
+   Im Container ist die Knowledge Base aus (M6); der zweite Punkt deckt das ab. Der Skill `best-practices` enthält dieselbe Anleitung ausführlicher und lädt, wenn er gebraucht wird.
+
+5. `pi mcp list` ist grün. Dann `/reload` in laufenden Sessions.
+6. **Test 6:** Nach einer Projektkonvention fragen. Der Aufruf von `mcp__kb__…` ist sichtbar, die Antwort nennt die Quelle (Skill `best-practices`).
+7. **Test 7:** RAG-Server stoppen und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
+8. Committen.
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
