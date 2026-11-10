@@ -70,6 +70,87 @@ export function levelFor(tier: Tier, why: Why): Level {
 	return tier === "strong" || why === "plan" ? "max" : "high";
 }
 
+/** The strong model behind an OpenRouter model ID, if it is one. */
+export function strongByModelId(id: string): Strong | undefined {
+	return (Object.keys(STRONG_MODELS) as Strong[]).find((strong) => STRONG_MODELS[strong].id === id);
+}
+
+/**
+ * The strong models worth trying, in order: the selected one, then the default (GLM 5.3),
+ * without the ones ruled out. Empty means Flash takes over.
+ */
+export function strongCandidates(selected: Strong, unusable: ReadonlySet<Strong> = new Set()): Strong[] {
+	const order: Strong[] = selected === DEFAULT_STRONG ? [DEFAULT_STRONG] : [selected, DEFAULT_STRONG];
+	return order.filter((candidate) => !unusable.has(candidate));
+}
+
+/**
+ * What a failed request says about the model that failed:
+ * - `routing`: OpenRouter has no endpoint for it under the routing rules (ZDR plus
+ *   `require_parameters` can leave none), or does not know the model;
+ * - `request`: the provider rejected the request's shape (HTTP 400/422), e.g. a replayed
+ *   assistant message without `reasoning_content`;
+ * - `transient`: rate limit, overload, server or network error. Pi retries the same model;
+ * - `other`: nothing another model would fix (key, credits, moderation, context overflow, which
+ *   Pi handles by compacting) or unknown.
+ */
+export type FailureKind = "routing" | "request" | "transient" | "other";
+
+const CONTEXT_OVERFLOW = /context.?(length|window|size)|maximum context|too many tokens|prompt is too long|input is too long|reduce the length/i;
+const NO_ENDPOINT = /no endpoints? found|no allowed providers|no providers? (are )?available|model not found|not a valid model|model .* does not exist/i;
+const TRANSIENT = /overloaded|rate.?limit|too many requests|at capacity|server_busy|temporarily unavailable|timed? ?out|timeout|network|connection|fetch failed|socket|terminated/i;
+const REQUEST_SHAPE = /invalid.?request|bad request|unprocessable|invalid (parameter|param|argument|value|type)|unsupported (parameter|value)|reasoning_content/i;
+
+/** The HTTP status in an error message as Pi formats it (`404: {…}`), or in OpenRouter's error body. */
+function statusOf(errorMessage: string): number | undefined {
+	const match = /^\s*(\d{3})(?!\d)/.exec(errorMessage) ?? /"code"\s*:\s*"?(\d{3})(?!\d)/.exec(errorMessage);
+	return match ? Number(match[1]) : undefined;
+}
+
+export function failureKind(errorMessage: string | undefined): FailureKind {
+	if (!errorMessage) return "other";
+	if (CONTEXT_OVERFLOW.test(errorMessage)) return "other";
+	if (NO_ENDPOINT.test(errorMessage)) return "routing";
+	const status = statusOf(errorMessage);
+	if (status !== undefined) {
+		if (status === 404) return "routing";
+		if (status === 400 || status === 422) return "request";
+		if (status === 408 || status === 429 || status >= 500) return "transient";
+		return "other";
+	}
+	if (TRANSIENT.test(errorMessage)) return "transient";
+	if (REQUEST_SHAPE.test(errorMessage)) return "request";
+	return "other";
+}
+
+export interface FailedRequest {
+	provider: string;
+	modelId: string;
+	errorMessage?: string;
+}
+
+/**
+ * The strong model a failed request rules out, or undefined: the request did not run on a strong
+ * model, that model is already ruled out, or the failure is one another model would not fix
+ * (rate limits and overload are retried on the same model).
+ */
+export function ruledOut(failed: FailedRequest, unusable: ReadonlySet<Strong>): { strong: Strong; kind: "routing" | "request" } | undefined {
+	if (failed.provider !== PROVIDER) return undefined;
+	const strong = strongByModelId(failed.modelId);
+	if (!strong || unusable.has(strong)) return undefined;
+	const kind = failureKind(failed.errorMessage);
+	return kind === "routing" || kind === "request" ? { strong, kind } : undefined;
+}
+
+/** A failed request's error on one line for a notice: status and message, without the JSON wrapper. */
+export function shortError(errorMessage: string | undefined, max = 160): string {
+	if (!errorMessage) return "no error message";
+	const status = /^\s*(\d{3})(?!\d)/.exec(errorMessage)?.[1];
+	const inner = /"message"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(errorMessage)?.[1]?.replace(/\\(.)/g, "$1");
+	const text = (inner ? `${status ? `${status}: ` : ""}${inner}` : errorMessage).replace(/\s+/g, " ").trim();
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** Changes to these files do not count as code: writing PLAN.md is still planning. */
 export function isDocsPath(path: string): boolean {
 	return /\.(md|mdx|markdown|rst|adoc)$/i.test(path);
@@ -207,7 +288,7 @@ export interface RouteInput {
 	strong?: Strong;
 	/** The strong model is available and can read every message (no images, or it accepts them). */
 	strongUsable: boolean;
-	/** The strong model that is actually reachable, when it is not the selected one (fallback). */
+	/** The strong model that actually serves, when it is not the selected one (missing or ruled out). */
 	strongFallback?: Strong;
 }
 

@@ -39,10 +39,38 @@ function agentRole(request: MockRequest): string | undefined {
 	return /You are `(scout|planner|worker|reviewer)`/.exec(request.system)?.[1];
 }
 
+/** What OpenRouter answers when ZDR plus require_parameters leave a model without a provider. */
+const NO_ENDPOINTS = {
+	status: 404,
+	message: "No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy",
+};
+let rateLimitedOnce = false;
+
+/** Scenarios in which OpenRouter refuses a strong model at request time. */
+function refusal(request: MockRequest): Reply | undefined {
+	switch (request.scenario) {
+		case "fail-404":
+		case "fail-404-loop":
+			return request.model === KIMI ? { error: NO_ENDPOINTS } : undefined;
+		case "fail-both":
+			return request.model === FLASH ? undefined : { error: NO_ENDPOINTS };
+		case "fail-400":
+			return request.model === KIMI ? { error: { status: 400, message: "Provider returned error" } } : undefined;
+		case "fail-429":
+			if (request.model !== GLM || rateLimitedOnce) return undefined;
+			rateLimitedOnce = true;
+			return { error: { status: 429, message: "Rate limit exceeded" } };
+		default:
+			return undefined;
+	}
+}
+
 function respond(request: MockRequest): Reply {
 	const step = request.stepInScenario;
 	const role = agentRole(request);
 	if (role) return respondAsSubagent(role, request);
+	const refused = refusal(request);
+	if (refused) return refused;
 
 	switch (request.scenario) {
 		case "defaults":
@@ -82,6 +110,13 @@ function respond(request: MockRequest): Reply {
 		case "kimi-replay":
 			// Flash thinks and calls a tool three times; the escalated model then gets that history.
 			return step < 3 ? { ...tool("bash", { command: "npm run missing-script" }), reasoning: `flash thought ${step}` } : say("took over");
+		case "fail-404":
+		case "fail-400":
+		case "fail-429":
+			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Fallback plan\n" }) : say("planned on the fallback");
+		case "fail-404-loop":
+		case "fail-both":
+			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
 		case "strong-back":
 			return say("back on glm");
 		case "strong-missing":
@@ -528,6 +563,59 @@ const scenarios: [string, () => Promise<void>][] = [
 			} finally {
 				rmSync(store, { force: true });
 			}
+		},
+	],
+	[
+		"a strong model without an endpoint (404) is ruled out: the run continues on GLM 5.3 with one notice, and later escalations skip it",
+		async () => {
+			const repo = makeRepo("fail-404", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "/plan the next step [scenario:fail-404]", "[scenario:fail-404-loop] run the script"]);
+			assert.equal(run.code, 0, `the run continues instead of ending with the error: ${run.stderr}`);
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("fail-404"), [`${KIMI}:max`, `${GLM}:max`, `${GLM}:max`], "the plan continues on GLM at max");
+			const [refused, retried] = requestsFor("fail-404");
+			assert.equal(retried.messages.length, refused.messages.length, "GLM gets the conversation without the failed attempt");
+			assert.deepEqual(retried.routing, ROUTING);
+			assert.match(retried.lastUserText, /The only file you may create or change is `PLAN.md`/, "the continuation is still the /plan prompt");
+			assert.equal(sh(repo, "git status --porcelain").trim(), "?? PLAN.md", "the fallback wrote the plan");
+			assert.deepEqual(routed("fail-404-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${GLM}:max`], "a later escalation skips Kimi");
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, no endpoint under the routing rules \(404: No endpoints found matching your data policy.*\); using GLM 5\.3 instead/);
+		},
+	],
+	[
+		"when both strong models have no endpoint, the run continues on Flash",
+		async () => {
+			const repo = makeRepo("fail-both", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "[scenario:fail-both] run the script"]);
+			assert.equal(run.code, 0, run.stderr);
+			const routed = requestsFor("fail-both").map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(
+				routed,
+				[`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:max`, `${GLM}:max`, `${FLASH}:high`],
+				"the escalation tries Kimi, then GLM, then goes on with Flash",
+			);
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 2, `one notice per model, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, .*; using GLM 5\.3 instead/);
+			assert.match(notices[1], /GLM 5\.3 failed, .*; using DeepSeek V4\.1 Flash instead/);
+		},
+	],
+	[
+		"a rejected request (HTTP 400) switches models in Pi's retry; a rate limit retries the same model",
+		async () => {
+			const repo = makeRepo("fail-400", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "/plan the next step [scenario:fail-400]", "/plan one more step [scenario:fail-429]"]);
+			assert.equal(run.code, 0, run.stderr);
+			const models = (scenario: string) => requestsFor(scenario).map((request) => request.model);
+			// Pi retries "Provider returned error" itself; the router answers the retry with GLM.
+			assert.deepEqual(models("fail-400"), [KIMI, GLM, GLM], "one failed request on Kimi, then GLM");
+			// GLM answers 429 once: Pi retries, and the router keeps the model.
+			assert.deepEqual(models("fail-429"), [GLM, GLM, GLM], "a rate limit does not rule the model out");
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, the request was rejected \(400: Provider returned error\); using GLM 5\.3 instead/);
 		},
 	],
 	[

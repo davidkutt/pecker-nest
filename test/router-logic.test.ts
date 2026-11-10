@@ -4,6 +4,7 @@ import {
 	DEFAULT_STATE,
 	DEFAULT_STRONG,
 	decide,
+	failureKind,
 	gateRound,
 	hasImages,
 	isStrong,
@@ -12,7 +13,11 @@ import {
 	readState,
 	type RouteInput,
 	type RouterState,
+	ruledOut,
 	sameState,
+	shortError,
+	strongByModelId,
+	strongCandidates,
 	strongName,
 	strongOf,
 	stuckReason,
@@ -310,5 +315,114 @@ describe("sameState", () => {
 		assert.equal(sameState({ tier: "strong", why: "hard", sticky: true }, { tier: "strong", why: "hard" }), false);
 		assert.equal(sameState({ tier: "flash", why: "default", strong: "kimi" }, DEFAULT_STATE), false);
 		assert.equal(sameState({ tier: "flash", why: "default", strong: "glm" }, DEFAULT_STATE), true, "an explicit glm equals the default");
+	});
+});
+
+// Error messages as Pi 1.5.0 formats them for OpenRouter: "<status>: <error body>".
+const NO_ENDPOINTS = '404: {"message":"No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy","code":404}';
+const PROVIDER_400 = '400: {"message":"Provider returned error","code":400}';
+
+describe("failureKind", () => {
+	it("reads a missing endpoint as a routing failure", () => {
+		assert.equal(failureKind(NO_ENDPOINTS), "routing");
+		assert.equal(failureKind("No endpoints found that support tool use."), "routing");
+		assert.equal(failureKind('404: {"message":"No allowed providers are available for the selected model.","code":404}'), "routing");
+		assert.equal(failureKind("400: moonshotai/kimi-k9 is not a valid model ID"), "routing");
+	});
+	it("reads a rejected request as a request-shape failure", () => {
+		assert.equal(failureKind(PROVIDER_400), "request");
+		assert.equal(failureKind('400: {"message":"thinking is enabled but reasoning_content is missing in assistant tool call message at index 3","code":400}'), "request");
+		assert.equal(failureKind("422 Unprocessable Entity"), "request");
+		assert.equal(failureKind("Invalid request: unsupported parameter"), "request");
+	});
+	it("leaves rate limits, overload and server errors to Pi's retry on the same model", () => {
+		assert.equal(failureKind('429: {"message":"Rate limit exceeded","code":429}'), "transient");
+		assert.equal(failureKind('429: {"message":"Provider returned error","code":429}'), "transient");
+		assert.equal(failureKind('502: {"message":"Provider returned error","code":502}'), "transient");
+		assert.equal(failureKind("503 Service Unavailable"), "transient");
+		assert.equal(failureKind("The model is overloaded"), "transient");
+		assert.equal(failureKind("fetch failed"), "transient");
+		assert.equal(failureKind('{"error":{"message":"Provider returned error","code":502}}'), "transient", "the status inside the error body counts");
+	});
+	it("does not blame the model for what another model would not fix", () => {
+		assert.equal(failureKind('401: {"message":"No auth credentials found","code":401}'), "other");
+		assert.equal(failureKind('402: {"message":"Insufficient credits","code":402}'), "other");
+		assert.equal(failureKind('403: {"message":"Input was flagged by moderation","code":403}'), "other");
+		assert.equal(failureKind("400: This endpoint's maximum context length is 1048576 tokens. However, you requested about 1200000 tokens"), "other");
+		assert.equal(failureKind(undefined), "other");
+		assert.equal(failureKind(""), "other");
+		assert.equal(failureKind("Provider finish_reason: content_filter"), "other");
+	});
+});
+
+describe("ruledOut", () => {
+	const kimi = { provider: "openrouter", modelId: "moonshotai/kimi-k3.1-pro" };
+	const glm = { provider: "openrouter", modelId: "z-ai/glm-5.3" };
+	it("rules a strong model out for a routing or request-shape failure", () => {
+		assert.deepEqual(ruledOut({ ...kimi, errorMessage: NO_ENDPOINTS }, new Set()), { strong: "kimi", kind: "routing" });
+		assert.deepEqual(ruledOut({ ...glm, errorMessage: PROVIDER_400 }, new Set()), { strong: "glm", kind: "request" });
+	});
+	it("keeps the model for rate limits, overload and account problems", () => {
+		assert.equal(ruledOut({ ...kimi, errorMessage: '429: {"message":"Rate limit exceeded","code":429}' }, new Set()), undefined);
+		assert.equal(ruledOut({ ...kimi, errorMessage: "The model is overloaded" }, new Set()), undefined);
+		assert.equal(ruledOut({ ...kimi, errorMessage: '402: {"message":"Insufficient credits","code":402}' }, new Set()), undefined);
+	});
+	it("never rules out Flash, a model of another provider, or a model twice", () => {
+		assert.equal(ruledOut({ provider: "openrouter", modelId: "deepseek/deepseek-v4.1-flash-1017", errorMessage: NO_ENDPOINTS }, new Set()), undefined);
+		assert.equal(ruledOut({ provider: "moonshotai", modelId: "moonshotai/kimi-k3.1-pro", errorMessage: NO_ENDPOINTS }, new Set()), undefined);
+		assert.equal(ruledOut({ ...kimi, errorMessage: NO_ENDPOINTS }, new Set(["kimi"] as const)), undefined, "a second failure must not start another continuation");
+	});
+});
+
+describe("strongCandidates", () => {
+	it("tries the selected model, then GLM 5.3", () => {
+		assert.deepEqual(strongCandidates("glm"), ["glm"]);
+		assert.deepEqual(strongCandidates("kimi"), ["kimi", "glm"]);
+	});
+	it("skips models that were ruled out; none left means Flash", () => {
+		assert.deepEqual(strongCandidates("kimi", new Set(["kimi"] as const)), ["glm"]);
+		assert.deepEqual(strongCandidates("kimi", new Set(["glm"] as const)), ["kimi"]);
+		assert.deepEqual(strongCandidates("kimi", new Set(["kimi", "glm"] as const)), []);
+		assert.deepEqual(strongCandidates("glm", new Set(["glm"] as const)), [], "GLM never falls back to Kimi");
+	});
+	it("maps model IDs back to the strong choice", () => {
+		assert.equal(strongByModelId("z-ai/glm-5.3"), "glm");
+		assert.equal(strongByModelId("moonshotai/kimi-k3.1-pro"), "kimi");
+		assert.equal(strongByModelId("deepseek/deepseek-v4.1-flash-1017"), undefined);
+	});
+});
+
+describe("shortError", () => {
+	it("unwraps OpenRouter's error body and keeps the status", () => {
+		assert.equal(shortError(PROVIDER_400), "400: Provider returned error");
+		assert.match(shortError(NO_ENDPOINTS), /^404: No endpoints found matching your data policy \(Zero data retention\)\./);
+	});
+	it("keeps plain messages, on one line and bounded", () => {
+		assert.equal(shortError("fetch failed"), "fetch failed");
+		assert.equal(shortError("a\n  b"), "a b");
+		assert.equal(shortError(undefined), "no error message");
+		const long = shortError("x".repeat(500), 40);
+		assert.equal(long.length, 40);
+		assert.ok(long.endsWith("…"));
+	});
+});
+
+describe("decide after a strong model was ruled out", () => {
+	it("continues a plan on the fallback at max without a second notice", () => {
+		// router.ts replays the stored state as a continuation and passes the model that serves now.
+		const state: RouterState = { tier: "strong", why: "plan", strong: "kimi" };
+		const result = decide(input({ state, strongFallback: "glm" }));
+		assert.equal(result.tier, "strong");
+		assert.equal(result.level, "max");
+		assert.equal(result.strong, "glm");
+		assert.equal(result.state, state, "the choice is kept");
+		assert.equal(result.notice, undefined, "the failure notice already said it");
+	});
+	it("continues an escalation on Flash at high when no strong model is left", () => {
+		const state: RouterState = { tier: "strong", why: "loop", strong: "kimi" };
+		const result = decide(input({ state, strongUsable: false }));
+		assert.equal(result.tier, "flash");
+		assert.equal(result.level, "high");
+		assert.equal(result.notice, undefined);
 	});
 });

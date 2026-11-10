@@ -204,7 +204,7 @@ export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit 20 $ Limit
 | --- | --- |
 | `link.sh`: „this repo must live at ~/dev/pecker-nest“ | Falscher Klon-Pfad. Verschieben, oder `ln -s <klon> ~/dev/pecker-nest`. |
 | Modell fehlt in `/model` | Dein Konto lässt es nicht zu, meist wegen ZDR. Auf der Modellseite bei OpenRouter prüfen, welche Provider ZDR anbieten. Danach `pi update --models`. |
-| „No endpoints found …“ beim Senden | Mit ZDR und `require_parameters` bleibt kein Provider übrig. Runbook, Abschnitt „Wenn Anfragen scheitern“. |
+| „No endpoints found …“ beim Senden | Mit ZDR und `require_parameters` bleibt kein Provider übrig. Beim starken Modell weicht der Router selbst auf GLM 5.3 oder Flash aus und sagt es. Runbook, Abschnitt „Wenn Anfragen scheitern“. |
 | „gate.json ignored: this project is not trusted“ | In dem Repo `/trust` ausführen. |
 | Ein Befehl wird mit „Blocked by safety-gate“ abgelehnt | Absicht. Wenn du ihn wirklich willst, führ ihn selbst aus: `!befehl` in Pi oder im Terminal. |
 | `pi-run.sh`: „set PI_RUN_OPENROUTER_API_KEY …“ | Container-Key exportieren (Schritt 6). |

@@ -197,6 +197,7 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-
 | `/hard` | das starke Modell, `max`, für alle Prompts bis `/flash` |
 | Bilder im Gespräch, und das starke Modell liest keine Bilder | immer Flash (GLM 5.3 liest keine Bilder, Kimi K3.1 Pro schon) |
 | Das starke Modell fehlt in deiner Modellliste | GLM 5.3, sonst Flash, mit einem Hinweis |
+| Das starke Modell scheitert bei der Anfrage: OpenRouter meldet „No endpoints found“ (404), oder der Provider lehnt die Anfrage ab (400) | GLM 5.3, sonst Flash, mit einem Hinweis; der Lauf geht weiter. Das Modell bleibt übersprungen, bis du Pi neu startest oder es mit `/strong <modell>` wieder wählst |
 
 Das starke Modell läuft seit dem 10.11. immer auf `max`, Flash bleibt auf `high`. Eine Eskalation heißt, dass Flash schon hängt; dort am Nachdenken zu sparen wäre die falsche Stelle (Begründung in [v1-notes.md](v1-notes.md#update-10112026-setup-härtung-und-modell-passung)).
 
@@ -210,7 +211,7 @@ Das starke Modell läuft seit dem 10.11. immer auf `max`, Flash bleibt auf `high
 
 `/strong` schaltet nur um und sendet keine Nachricht, wie `/hard`; den Prompt tippst du danach. Die Wahl steht im Router-State, folgt also `/tree` und übersteht Neustarts. Flash bleibt in jedem Fall das Arbeitsmodell, und der Reviewer bleibt auf GLM (für den Review-Vergleich siehe den Lauf-Override unten).
 
-Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nach Fehlern bleiben auf dem Modell, das scheiterte. Jeder Wechsel kostet einen Prompt-Cache-Miss.
+Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nach Rate-Limits und Überlast bleiben auf dem Modell, das scheiterte. Jeder Wechsel kostet einen Prompt-Cache-Miss.
 
 1. **Test 9:** Eine Aufgabe von `/plan` bis Umsetzung. Die Fußzeile zeigt erst `escalate • high → z-ai/glm-5.3 • max`, beim nächsten Prompt `… → deepseek/deepseek-v4.1-flash-1017 • high`. Jeder Wechsel erscheint als Hinweis `router: …`.
 2. Nach ein paar Sessions die Session-Reports ansehen (Abschnitt „Router“ und „Tools“): Wie oft musste GLM einspringen, und warum? Springt GLM zu oft ein, ist Flash für die Aufgabe zu schwach (dann `/hard` für solche Aufgaben). Springt GLM nie ein, obwohl Flash hängt, sind die Schwellen zu hoch. Die Schwellen stehen in `extensions/lib/router-logic.ts`.
@@ -316,7 +317,7 @@ Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` 
 
 ## Wenn Anfragen scheitern
 
-- **„No endpoints found …“:** `zdr: true` plus `require_parameters: true` lässt für ein Modell keinen Provider übrig. Auf der Modellseite bei OpenRouter nachsehen, welche Provider ZDR und Tool-Calls anbieten. Dann in `agent/models.json` zuerst `require_parameters` entfernen, nur im Notfall `zdr`.
+- **„No endpoints found …“:** `zdr: true` plus `require_parameters: true` lässt für ein Modell keinen Provider übrig. Trifft es das starke Modell, macht der Router von selbst auf GLM 5.3 weiter, sonst auf Flash, und meldet es einmal (`router: Kimi K3.1 Pro failed, no endpoint under the routing rules (…); using GLM 5.3 instead …`). Trifft es Flash, endet der Lauf mit dem Fehler. Welche Provider ZDR und Tool-Calls anbieten, zeigt `node scripts/probe-openrouter.ts` (Abschnitt „Endpoints“) oder die Modellseite bei OpenRouter. Dann in `agent/models.json` zuerst `require_parameters` entfernen, nur im Notfall `zdr`.
 - **Modell fehlt in `/model`:** Die Liste kommt von OpenRouter (`/models/user`) und spiegelt deine Guardrails. `pi update --models` lädt sie neu.
 - **Keine `order`/`sort`-Einträge in `openRouterRouting`:** Sie umgehen das Sticky Routing und kosten Cache-Treffer. `only` und `ignore` sind unproblematisch.
 

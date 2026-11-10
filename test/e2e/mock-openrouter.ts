@@ -14,8 +14,11 @@ export interface ToolUse {
 	name: string;
 	input: Record<string, unknown>;
 }
-/** `reasoning` is streamed before the answer in OpenRouter's `reasoning` delta field. */
-export type Reply = { text?: string; tools?: ToolUse[]; reasoning?: string };
+/**
+ * `reasoning` is streamed before the answer in OpenRouter's `reasoning` delta field. `error`
+ * answers with that HTTP status and OpenRouter's error body instead of a completion.
+ */
+export type Reply = { text?: string; tools?: ToolUse[]; reasoning?: string; error?: { status: number; message: string } };
 
 export interface ChatMessage {
 	role: string;
@@ -146,6 +149,11 @@ export class MockOpenRouter {
 				reply = this.respond(request);
 			} catch (error) {
 				reply = { text: `mock error: ${error instanceof Error ? error.message : String(error)}` };
+			}
+			if (reply.error) {
+				res.writeHead(reply.error.status, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { message: reply.error.message, code: reply.error.status } }));
+				return;
 			}
 			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			res.end(sse(reply, body.model));
