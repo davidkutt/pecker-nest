@@ -72,8 +72,9 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | `extensions/quality-gate.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden | Läuft nur in Repos, denen du vertraust (`/trust`) |
 | `extensions/router.ts`, `extensions/lib/router-logic.ts` | Virtuelles Modell `router/escalate`: Flash für jeden Prompt, das starke Modell für `/plan`, ein rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Die Schwellen und `DEFAULT_STRONG` in `router-logic.ts` |
 | `extensions/checkpoint.ts`, `extensions/lib/checkpoint.ts` | Git-Checkpoint vor jedem Prompt, `/rewind` | Ruft `git` auf, schreibt nur Refs unter `refs/nest/checkpoints/` |
+| `extensions/provider-log.ts`, `extensions/lib/provider-log.ts` | Schreibt zu jeder Anfrage den OpenRouter-Provider in die Session-Datei, aus dem Stream der Antwort | Schickt selbst keine Anfrage und braucht keinen Key |
 | `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
-| `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus |
+| `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus und arbeitet offline |
 | `agent/agents/*.md` | Die vier Rollen `scout`, `planner`, `worker`, `reviewer` | Modell und Tools je Rolle |
 | `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh`, `scripts/build-image.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht; woher `pi-run.sh` den Key nimmt |
 | `scripts/doctor.sh`, `scripts/probe-openrouter.ts` | Prüft, ob der Rechner bereit ist (liest nur); Live-Probe gegen OpenRouter, die du selbst startest | Die Probe schickt echte Anfragen (ein paar Cent) |

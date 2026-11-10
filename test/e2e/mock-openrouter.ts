@@ -21,6 +21,11 @@ export interface ToolUse {
  */
 export type Reply = { text?: string; tools?: ToolUse[]; reasoning?: string; error?: { status: number; message: string } };
 
+/** The upstream provider the mock names in every stream chunk, as OpenRouter does: one per model author. */
+export function mockProvider(model: string): string {
+	return `Mock-${model.split("/")[0]}`;
+}
+
 export interface ChatMessage {
 	role: string;
 	content?: unknown;
@@ -84,7 +89,7 @@ let counter = 0;
 function sse(reply: Reply, model: string): string {
 	const id = `gen-mock-${++counter}`;
 	const chunk = (delta: unknown, finish: string | null = null, usage?: unknown) =>
-		`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 0, model, choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
+		`data: ${JSON.stringify({ id, provider: mockProvider(model), object: "chat.completion.chunk", created: 0, model, choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
 	let out = chunk({ role: "assistant", content: "" });
 	if (reply.reasoning) out += chunk({ reasoning: reply.reasoning });
 	if (reply.text) out += chunk({ content: reply.text });

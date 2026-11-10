@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.ts";
+import { MockOpenRouter, type MockRequest, mockProvider, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
@@ -290,6 +290,16 @@ function runPiRpc(cwd: string, message: string, done: () => boolean): Promise<vo
 	});
 }
 
+/** The session report of a repository's sessions, as JSON. */
+function sessionReport(repo: string, ...args: string[]) {
+	const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json", ...args], {
+		encoding: "utf-8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	});
+	assert.equal(report.status, 0, report.stderr);
+	return JSON.parse(report.stdout);
+}
+
 function assertChain(scenario: string) {
 	const byRole = new Map<string, MockRequest>();
 	for (const request of requestsFor(scenario)) {
@@ -451,17 +461,22 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "max"), "GLM max from round 2");
 			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(gate: quality gate still red at repair round 2\)/);
 			// The session report reads the same session back.
-			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
-				encoding: "utf-8",
-				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
-			});
-			assert.equal(report.status, 0, report.stderr);
-			const { stats } = JSON.parse(report.stdout);
+			const { stats } = sessionReport(repo);
 			assert.deepEqual(stats.escalations, { gate: 1 });
 			assert.equal(stats.gate.repairs, 2);
 			assert.equal(stats.gate.handedBack, 1);
 			assert.ok(stats.models[FLASH].requests > 0 && stats.models[GLM].requests > 0);
 			assert.equal(stats.checkpoints, 1);
+			// The outcome of the switch: GLM did not get the gate green, in two requests.
+			const strongRequests = requests.slice(round2).length;
+			assert.equal(stats.escalationOutcomes.length, 1);
+			const { cost, ...outcome } = stats.escalationOutcomes[0];
+			assert.deepEqual(outcome, { why: "gate", strong: "glm", switches: 1, green: 0, handedBack: 1, noGate: 0, requests: strongRequests });
+			assert.ok(Math.abs(cost - stats.models[GLM].cost) < 1e-9, "the switch cost what GLM cost");
+			assert.deepEqual(stats.fallbacks, []);
+			// The provider log names the upstream provider of every request, from the stream.
+			assert.deepEqual(Object.keys(stats.providers[FLASH]), [mockProvider(FLASH)], "every Flash request has its provider");
+			assert.deepEqual(stats.providers[GLM], { [mockProvider(GLM)]: { requests: strongRequests, errors: 0, failedTools: 0, failedEdits: 0 } });
 		},
 	],
 	[
@@ -515,15 +530,14 @@ const scenarios: [string, () => Promise<void>][] = [
 			const sessions = new Set(mock.requests.filter((request) => request.scenario?.startsWith("strong-")).map((request) => request.sessionId));
 			assert.equal(sessions.size, 1, "switching the strong model keeps the session id");
 			// The session report attributes the switches to Kimi.
-			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
-				encoding: "utf-8",
-				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
-			});
-			assert.equal(report.status, 0, report.stderr);
-			const { stats } = JSON.parse(report.stdout);
+			const { stats } = sessionReport(repo);
 			assert.deepEqual(stats.escalations, { plan: 1, loop: 1 });
 			assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
 			assert.ok(stats.models[KIMI].requests > 0, "Kimi appears in the model table");
+			const outcomes = stats.escalationOutcomes.map((outcome: { why: string; strong: string; requests: number; noGate: number }) => [outcome.why, outcome.strong, outcome.requests, outcome.noGate]);
+			assert.deepEqual(outcomes, [["plan", "kimi", 2, 1], ["loop", "kimi", 1, 1]], "per reason and strong model; no gate in this repository");
+			// Flash's three failed bash calls are counted on the provider that served those turns.
+			assert.equal(stats.providers[FLASH][mockProvider(FLASH)].failedTools, 3);
 		},
 	],
 	[
@@ -586,6 +600,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
 			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, no endpoint under the routing rules \(404: No endpoints found matching your data policy.*\); using GLM 5\.3 instead/);
+			// The session report counts the fallback on its own line, and the failed request has no provider.
+			const { stats } = sessionReport(repo);
+			assert.deepEqual(stats.fallbacks, [{ ruledOut: "kimi", kind: "routing", tookOver: "glm", count: 1 }]);
+			assert.deepEqual(stats.providers[KIMI], { "–": { requests: 1, errors: 1, failedTools: 0, failedEdits: 0 } });
 		},
 	],
 	[
@@ -604,6 +622,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.equal(notices.length, 2, `one notice per model, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, .*; using GLM 5\.3 instead/);
 			assert.match(notices[1], /GLM 5\.3 failed, .*; using DeepSeek V4\.1 Flash instead/);
+			assert.deepEqual(sessionReport(repo).stats.fallbacks, [
+				{ ruledOut: "kimi", kind: "routing", tookOver: "glm", count: 1 },
+				{ ruledOut: "glm", kind: "routing", tookOver: "flash", count: 1 },
+			]);
 		},
 	],
 	[
@@ -620,6 +642,8 @@ const scenarios: [string, () => Promise<void>][] = [
 			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
 			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, the request was rejected \(400: Provider returned error\); using GLM 5\.3 instead/);
+			// A fallback inside Pi's retry is recorded like one the router continued itself.
+			assert.deepEqual(sessionReport(repo).stats.fallbacks, [{ ruledOut: "kimi", kind: "request", tookOver: "glm", count: 1 }]);
 		},
 	],
 	[
@@ -693,6 +717,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.ok(child.every((request) => request.model === FLASH && request.effort === "high"));
 			assert.match(child[1].lastUserText, /Blocked by safety-gate/);
 			assert.ok(existsSync(join(repo, "build/out.js")));
+			// The provider log runs in the subagent too: no request without a provider.
+			const { stats } = sessionReport(repo);
+			assert.ok(stats.agents.worker?.requests >= 2, "the worker's session is part of the report");
+			assert.deepEqual(Object.keys(stats.providers[FLASH]), [mockProvider(FLASH)], "main session and worker both record the provider");
 		},
 	],
 	[

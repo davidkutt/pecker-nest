@@ -332,7 +332,13 @@ Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pec
 
 Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
 
-**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten.
+**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten. Der Befehl ist in bash, zsh und fish derselbe.
+
+Für die nächsten Entscheidungen im Planungschat zählen drei Stellen des Reports:
+
+- **Router, „Outcome of the switches“:** eine Zeile je Grund und starkem Modell, etwa `gate, GLM 5.3: 3 switches, 2 green, 1 handed back; 14 strong-model requests, $0.42`. Ein Wechsel reicht bis zu deinem nächsten Prompt; „green“ heißt, der letzte Gate-Lauf in dieser Zeit war grün, „handed back“, dass das Gate rot an dich zurückgab, „without a gate run“, dass kein Gate lief (`/plan`, Fragen, Repos ohne `gate.json`). Daran hängen die Schwellen, der Nutzen von `max` und GLM gegen Kimi.
+- **Router, „Fallbacks at request time“:** eine Zeile je Ausweichen, etwa `Kimi K3.1 Pro ruled out (no endpoint under the routing rules), GLM 5.3 took over: 1×`.
+- **Providers:** je Modell und OpenRouter-Provider die Anfragen, Anfragefehler, gescheiterten Tool-Aufrufe und gescheiterten Edits der Turns, die dieser Provider bedient hat. Häufen sich die Fehler bei einem Provider, ist das der Anlass, Provider zu pinnen. „–“ steht für Anfragen ohne bekannten Provider: Sessions von vor diesem Stand und Anfragen, die scheiterten, bevor eine Antwort kam. Den Provider liest `extensions/provider-log.ts` aus dem Stream der Antwort; der Report schickt dafür keine Anfrage.
 
 ## Neue Abnahmetests 12 und 13 (👤 je 5 Minuten)
 
