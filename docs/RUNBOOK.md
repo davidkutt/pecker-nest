@@ -1,12 +1,12 @@
 # Runbook nest V1
 
-Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026, das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026 und Strategie A vom 07.11.2026 (DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein; Details in [v1-notes.md](v1-notes.md#update-07112026-strategie-a)). `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update. Noch nichts eingerichtet? Dann zuerst der [Setup-Guide](SETUP.md).
+Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026, das Update „GLM 5.3 & DeepSeek über OpenRouter“ vom 30.10.2026 und Strategie A vom 07.11.2026 (DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein; Details in [v1-notes.md](v1-notes.md#update-07112026-strategie-a)). Stand ist die Setup-Härtung vom 10.11.2026 ([v1-notes.md](v1-notes.md#update-10112026-setup-härtung-und-modell-passung)). `pi-config` aus dem Plan ist dieses Repo (`pecker-nest`). Die Meilensteine und die Nummern der Abnahmetests (1–13) entsprechen Plan und Update. Noch nichts eingerichtet? Dann zuerst der [Setup-Guide](SETUP.md).
 
 **Legende:** ✅ erledigt und getestet · 👤 dein Teil
 
 ## Stand
 
-Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 19 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da.
+Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 23 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da und die [Live-Probe](#live-probe-gegen-openrouter--5-minuten-ein-paar-cent), die du selbst startest.
 
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
@@ -28,11 +28,15 @@ node --version        # mindestens 22.18 (nur für npm run check / e2e)
 docker --version      # für M6
 ```
 
+Sobald das Repo geklont und verlinkt ist (M0), prüft ein Befehl alles auf einmal, auch Login, Modelle, Container-Key und Image: `~/dev/pecker-nest/scripts/doctor.sh`.
+
+Alle Befehle in diesem Runbook laufen in bash, zsh und fish gleich. Wo sich fish unterscheidet, steht zuerst der Befehl für bash/zsh und danach der für fish. Eine Variable für einen einzelnen Befehl ist deshalb immer als `env NAME=wert befehl` geschrieben; das versteht jede der drei Shells.
+
 ## M0 – Fundament (👤 ca. 20 Minuten)
 
 1. **OpenRouter-Konto vorbereiten** (entschieden am 30.10.: ZDR global, Container-Budget 20 $):
    - Unter Settings → Privacy *Zero Data Retention* für „alle anderen Modelle“ einschalten. Dann zeigt OpenRouter deinem Key nur noch ZDR-Endpunkte, und Pi übernimmt das in seine Modellliste.
-   - Unter Keys einen **zweiten Key nur für den Container** anlegen, mit Kreditlimit 20 $.
+   - Unter Keys einen **zweiten Key nur für den Container** anlegen, mit Kreditlimit 20 $. Er kommt in M6 in den macOS-Schlüsselbund, nicht in eine Shell-Konfiguration.
 
 2. Repo an genau diese Stelle klonen. `agent/settings.json` lädt das Package von `~/dev/pecker-nest`:
 
@@ -55,7 +59,7 @@ docker --version      # für M6
    /login openrouter
    ```
 
-   Alternativ `export OPENROUTER_API_KEY=sk-or-...` in `~/.zshrc`. Nach dem Login lädt Pi die Modellliste deines Keys neu.
+   Das reicht; einen Key zu exportieren ist nicht nötig. Nach dem Login lädt Pi die Modellliste deines Keys neu.
 
 5. **Test 1:**
 
@@ -122,7 +126,7 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
 6. **Vergleich mit pi-project-profile (1–2 Stunden):** In jedem Pilot-Repo das fertige Package ausprobieren, ohne unser Gate:
 
    ```bash
-   PI_NEST_GATE=off pi -e npm:@lenard9191/pi-project-profile@1.4.0
+   env PI_NEST_GATE=off pi -e npm:@lenard9191/pi-project-profile@1.4.0
    ```
 
    Darin `/profile tests allow` setzen, Test 5 wiederholen und `/profile` ansehen. Was ich aus dem Quellcode schon bewertet habe, steht in [v1-notes.md](v1-notes.md#pi-project-profile). Entscheidung:
@@ -394,5 +398,8 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (unde
 | 08.11.2026 | DeepSeek V4.1 Pro | Beobachten, kein Erscheinungsdatum. Nichts einbauen, bis es da ist. |
 | 08.11.2026 | Claude Codes Konfiguration | `${CLAUDE_CONFIG_DIR:-~/.claude}` gilt für das Safety-Gate als Harness: nest ändert die Einstellungen und Skills seines Aufsehers nicht. |
 | 08.11.2026 | PR für nests Arbeit | Claude Code darf auf Bitte pushen und den PR eröffnen (Kategorie `admin`, zählt nicht gegen nest). Mergen bleibt bei David. |
+| 10.11.2026 | Denkstufe des starken Modells | Immer `max`: `/plan`, Eskalationen, `/hard` und der Reviewer. Flash bleibt auf `high`. |
+| 10.11.2026 | Container-Key | Liegt im macOS-Schlüsselbund (`pecker-nest-container-key`). `pi-run.sh` nimmt den interaktiven Key nie von selbst. |
+| 10.11.2026 | Veraltetes Image | `pi-run.sh` startet nur ein Image, das `scripts/build-image.sh` aus dem aktuellen Commit gebaut hat. |
 
-Alle offenen Fragen des Plans sind damit entschieden.
+Alle offenen Fragen des Plans sind damit entschieden. Bewusst offen bis nach der Live-Probe und den ersten echten Sessions: Provider festlegen (`only`, `quantizations`), `DEFAULT_STRONG`, Flashs Denkstufe, die Eskalationsschwellen, Preserved Thinking für GLM und der Vergleich mit pi-project-profile.

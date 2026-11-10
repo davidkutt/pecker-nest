@@ -2,7 +2,7 @@
 
 Von null bis zum ersten echten Lauf: Code ansehen, klonen, Pi umstellen, Pilot-Repos und Container. Rechne mit gut einer Stunde, plus die Zeit, die du dir für das Durchsehen des Codes nimmst. Die Abnahmetests danach stehen im [Runbook](RUNBOOK.md).
 
-Die Befehle sind für macOS mit Homebrew geschrieben; unter Linux tauschst du nur die Installationsbefehle aus.
+Die Befehle sind für macOS mit Homebrew geschrieben; unter Linux tauschst du nur die Installationsbefehle aus. Sie laufen in bash, zsh und fish gleich. Wo sich fish unterscheidet, steht zuerst der Befehl für bash/zsh und danach der für fish.
 
 ## Überblick
 
@@ -46,7 +46,7 @@ Auf openrouter.ai:
 1. **Settings → Privacy:** Zero Data Retention für „alle anderen Modelle“ einschalten. Danach bietet OpenRouter deinem Konto nur noch Provider an, die nichts speichern.
 2. **Keys → Create Key:** einen Key nur für den Container anlegen, Kreditlimit 20 $. Leg ihn in deinen Passwort-Manager; in Schritt 6 kommt er in den macOS-Schlüsselbund.
 
-Für die interaktive Arbeit brauchst du keinen eigenen Key anzulegen. Du meldest dich in Schritt 4 mit `/login openrouter` an. Alternativ geht auch ein Key in der Umgebungsvariable `OPENROUTER_API_KEY`.
+Für die interaktive Arbeit brauchst du keinen eigenen Key anzulegen und keinen zu exportieren. Du meldest dich in Schritt 4 mit `/login openrouter` an; das reicht. Ein exportierter `OPENROUTER_API_KEY` hat kein Limit und liegt in jeder Shell offen, deshalb warnt `scripts/doctor.sh`, wenn er gesetzt ist.
 
 ## 3. pecker-nest klonen und ansehen (30–60 Minuten)
 
@@ -75,7 +75,8 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
 | `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus |
 | `agent/agents/*.md` | Die vier Rollen `scout`, `planner`, `worker`, `reviewer` | Modell und Tools je Rolle |
-| `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht |
+| `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh`, `scripts/build-image.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht; woher `pi-run.sh` den Key nimmt |
+| `scripts/doctor.sh`, `scripts/probe-openrouter.ts` | Prüft, ob der Rechner bereit ist (liest nur); Live-Probe gegen OpenRouter, die du selbst startest | Die Probe schickt echte Anfragen (ein paar Cent) |
 | `docs/v1-notes.md` | Abweichungen vom Plan, Prüfung von pi-subagents, was nicht getestet ist | – |
 
 Fremdcode: `pi-subagents@0.87.0` von npm, dazu zwei unveränderte Beispiele aus Pi (`extensions/vendor/`) und der Skill `grill-me` nach Matt Pocock (MIT). Was ich daran geprüft habe, steht in `docs/v1-notes.md` im Abschnitt „pi-subagents“.
@@ -128,8 +129,8 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    Der Browser öffnet sich; danach lädt Pi die Modelle, die dein Konto nutzen darf.
 
 4. Kontrolle:
-   - `/model` zeigt `router/escalate` (ausgewählt) und unter `openrouter` `deepseek/deepseek-v4.1-flash-1017` und `z-ai/glm-5.3`.
-   - Fehlt eines davon, lässt dein ZDR-Filter es nicht zu. Siehe „Häufige Probleme“ unten.
+   - `/model` zeigt `router/escalate` (ausgewählt) und unter `openrouter` drei Modelle: `deepseek/deepseek-v4.1-flash-1017`, `z-ai/glm-5.3` und `moonshotai/kimi-k3.1-pro`.
+   - Fehlt eines davon, lässt dein ZDR-Filter es nicht zu. Siehe „Häufige Probleme“ unten. Kimi K3.1 Pro braucht der Router nur nach `/strong kimi`; fehlt es, läuft alles auf GLM.
    - In der Shell zeigt `pi list` zwei Packages: `~/dev/pecker-nest` und `npm:pi-subagents@0.87.0`.
 
 5. Alles auf einmal prüfen:
@@ -231,12 +232,28 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh`, ob Key und Image bereit sind
 
 Zurück zu deiner alten Pi-Konfiguration:
 
+Zuerst die Symlinks entfernen. In bash oder zsh:
+
 ```bash
 cd ~/.pi/agent
 for f in settings.json models.json APPEND_SYSTEM.md mcp.json; do [ -L "$f" ] && rm "$f"; done
+```
+
+In fish:
+
+```fish
+cd ~/.pi/agent
+for f in settings.json models.json APPEND_SYSTEM.md mcp.json; test -L $f; and rm $f; end
+```
+
+Der Rest ist in allen drei Shells gleich:
+
+```bash
 find prompts -type l -lname '*pecker-nest*' -delete
 ls *.bak.*                                       # deine gesicherten Dateien
 mv settings.json.bak.<zeitstempel> settings.json  # je Datei, die du zurückhaben willst
 ```
+
+Die Claude-Code-Skills: `rm ~/.claude/skills/nest-supervise ~/.claude/skills/nest-handoff` (beides Symlinks). Den Container-Key aus dem Schlüsselbund: `security delete-generic-password -a "$USER" -s pecker-nest-container-key`.
 
 Container-Reste entfernen: `docker rmi pecker-nest-pi` und `docker volume rm pecker-nest-sessions`.

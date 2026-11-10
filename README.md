@@ -2,7 +2,7 @@
 
 Versioned [Pi](https://pi.dev) configuration for nest: DeepSeek V4.1 Flash does the work and a stronger model steps in when it is needed (strategy A) — GLM 5.3 by default, Kimi K3.1 Pro with `/strong kimi` — all through one OpenRouter key with zero-data-retention routing. It adds a safety gate with per-repository protection rules, a quality gate with bounded self-repair, an escalation router, git checkpoints with `/rewind`, four subagent roles with a cross-model review chain, headless runs in Docker, and a session report plus Claude Code skills for supervised dogfooding. Host and container load the same files.
 
-The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the update "GLM 5.3 & DeepSeek über OpenRouter" (30.10.2026), strategy A from the planning chat (07.11.2026) and the optional Kimi K3.1 Pro stand-in (08.11.2026). In that plan this repo is called `pi-config`.
+The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the update "GLM 5.3 & DeepSeek über OpenRouter" (30.10.2026), strategy A from the planning chat (07.11.2026), the optional Kimi K3.1 Pro stand-in (08.11.2026) and the setup hardening of 10.11.2026. In that plan this repo is called `pi-config`.
 
 - **Start here, from zero:** [docs/SETUP.md](docs/SETUP.md)
 - **Acceptance tests, milestones, dogfooding:** [docs/RUNBOOK.md](docs/RUNBOOK.md)
