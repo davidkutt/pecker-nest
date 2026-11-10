@@ -45,7 +45,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │                             image), task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
-│   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix
+│   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
+│   │                         --docker adds the daemon and image checks for headless runs
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
@@ -63,7 +64,7 @@ git clone -b main https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
 ~/dev/pecker-nest/scripts/link.sh --claude
 pi            # first start installs pi-subagents@0.87.0; then /login openrouter
 pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
-~/dev/pecker-nest/scripts/doctor.sh   # tools, links, login, models, container key, image
+~/dev/pecker-nest/scripts/doctor.sh   # tools, links, login, models; --docker adds daemon and image
 ```
 
 In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.

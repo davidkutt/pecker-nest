@@ -28,7 +28,7 @@ node --version        # mindestens 22.18 (nur für npm run check / e2e)
 docker --version      # für M6
 ```
 
-Sobald das Repo geklont und verlinkt ist (M0), prüft ein Befehl alles auf einmal, auch Login, Modelle, Container-Key und Image: `~/dev/pecker-nest/scripts/doctor.sh`.
+Sobald das Repo geklont und verlinkt ist (M0), prüft ein Befehl alles auf einmal, auch Login und Modelle: `~/dev/pecker-nest/scripts/doctor.sh`. Docker-Daemon und Image prüft er nur mit `--docker` (für die Headless-Läufe aus M6).
 
 Alle Befehle in diesem Runbook laufen in bash, zsh und fish gleich. Wo sich fish unterscheidet, steht zuerst der Befehl für bash/zsh und danach der für fish. Eine Variable für einen einzelnen Befehl ist deshalb immer als `env NAME=wert befehl` geschrieben; das versteht jede der drei Shells.
 
@@ -380,10 +380,16 @@ Den Bericht gibst du dem Planungschat. Was daraus folgt (Provider festlegen, Fla
 cd ~/dev/pecker-nest
 npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung gegen dein installiertes Pi
 scripts/build-image.sh && npm run e2e:docker
-scripts/doctor.sh                          # Werkzeuge, Links, Login, Modelle, Container-Key, Image
+scripts/doctor.sh --docker                 # Werkzeuge, Links, Login, Modelle, dazu Docker-Daemon, Image und Container-Key
 ```
 
-`scripts/doctor.sh` gibt je Prüfung eine Zeile aus, die mit `PASS`, `WARN` oder `FAIL` beginnt; `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Bei einem `FAIL` ist der Exit-Code 1. Es prüft unter anderem, ob `pi --version` zur Version in `package.json` passt (älter: `FAIL`; neuer: `WARN`, dann zuerst `npm run e2e`), und ob das Image vom aktuellen Commit stammt. Mit `--repo <pfad>` prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Es ändert nichts, gibt keine Schlüssel aus und kostet keine Tokens.
+Die zweite und die dritte Zeile brauchst du nur für Headless-Läufe im Container. Solange die zurückgestellt sind, genügen `npm ci && npm run check && npm run e2e` und `scripts/doctor.sh` ohne `--docker`; ein neues Image nach jedem Pull ist dann nicht nötig.
+
+`scripts/doctor.sh` gibt je Prüfung eine Zeile aus, die mit `PASS`, `WARN` oder `FAIL` beginnt; `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Bei einem `FAIL` ist der Exit-Code 1. Es prüft unter anderem, ob `pi --version` zur Version in `package.json` passt (älter: `FAIL`; neuer: `WARN`, dann zuerst `npm run e2e`). Es ändert nichts, gibt keine Schlüssel aus und kostet keine Tokens.
+
+- **Ohne `--docker`** bleiben Docker-Daemon und Image ungeprüft. Dafür steht eine Zeile `SKIP  docker: …` in der Ausgabe, die den Befehl mit `--docker` nennt; sie zählt weder als Warnung noch als Fehler. Der Schlüsselbund-Eintrag `pecker-nest-container-key` wird trotzdem geprüft, weil die Live-Probe denselben Eintrag liest. Fehlt er, ist das hier nur ein `WARN`.
+- **Mit `--docker`** kommen die Prüfungen für Headless-Läufe dazu: Der Daemon muss laufen, das Image muss vom aktuellen Commit stammen, und ein fehlender Schlüsselbund-Eintrag ist ein `FAIL`.
+- **Mit `--repo <pfad>`** prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Beide Schalter lassen sich kombinieren.
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
 

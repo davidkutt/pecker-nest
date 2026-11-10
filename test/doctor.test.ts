@@ -1,7 +1,8 @@
 /**
  * scripts/doctor.sh against stub tools: `pi`, `node`, `pnpm`, `uv`, `docker` and `security` on
  * PATH answer as the test says, HOME is a scratch directory with ~/dev/pecker-nest pointing at
- * this checkout. Nothing here needs Pi, Docker, a Keychain or a key.
+ * this checkout. Nothing here needs Pi, Docker, a Keychain or a key. The `docker` stub records
+ * its calls, so the tests can tell that Docker is not asked without `--docker`.
  */
 
 import assert from "node:assert/strict";
@@ -50,6 +51,7 @@ echo "$STUB_PNPM_VERSION"
 echo "uv 0.13.6"
 `,
 	docker: `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$STUB_DIR/docker-calls"
 if [[ "$1" == info ]]; then [[ "$STUB_DOCKER_UP" == 1 ]]; exit; fi
 if [[ "$1 $2" == "image inspect" ]]; then
   [[ -n "$STUB_IMAGE_LABELS" ]] || { echo "Error response from daemon: No such image" >&2; exit 1; }
@@ -116,19 +118,21 @@ function doctor(options: Options = {}) {
 	const result = spawnSync(DOCTOR, options.args ?? [], { encoding: "utf-8", env });
 	const lines = result.stdout.trimEnd().split("\n");
 	const securityCalls = existsSync(join(dir, "security-calls")) ? readFileSync(join(dir, "security-calls"), "utf-8") : "";
+	const dockerCalls = existsSync(join(dir, "docker-calls")) ? readFileSync(join(dir, "docker-calls"), "utf-8") : "";
 	return {
 		status: result.status,
 		stdout: result.stdout,
 		stderr: result.stderr,
 		lines,
 		securityCalls,
+		dockerCalls,
 		/** The single check line that contains `text`. */
 		line(text: string): string {
 			const found = lines.filter((line) => line.includes(text));
 			assert.equal(found.length, 1, `expected one line with "${text}", got:\n${result.stdout}`);
 			return found[0];
 		},
-		count: (level: "PASS" | "WARN" | "FAIL") => lines.filter((line) => line.startsWith(`${level}  `)).length,
+		count: (level: "PASS" | "WARN" | "FAIL" | "SKIP") => lines.filter((line) => line.startsWith(`${level}  `)).length,
 	};
 }
 
@@ -145,8 +149,9 @@ function targetRepo(files: Record<string, string>): string {
 
 describe("scripts/doctor.sh", () => {
 	it("passes on a machine that is ready, one PASS/WARN/FAIL line per check", () => {
-		const run = doctor();
+		const run = doctor({ args: ["--docker"] });
 		assert.equal(run.status, 0, run.stdout + run.stderr);
+		assert.equal(run.count("SKIP"), 0, "with --docker nothing is left out");
 		assert.equal(run.count("FAIL"), 0, run.stdout);
 		const checks = run.lines.slice(0, -1);
 		for (const line of checks) assert.match(line, /^(PASS|WARN|FAIL) {2}\S/, "every check line starts with its result");
@@ -207,11 +212,27 @@ describe("scripts/doctor.sh", () => {
 		assert.ok(doctor({ env: { STUB_NODE_VERSION: "v24.1.0" } }).line("node:").startsWith("PASS  "));
 	});
 
-	it("fails when the Docker daemon is down and does not guess about the image", () => {
-		const run = doctor({ env: { STUB_DOCKER_UP: "0" } });
+	it("leaves Docker alone without --docker: one SKIP line, no daemon or image check, no failure", () => {
+		// No daemon, no image, no Keychain item: nothing an interactive session needs.
+		const run = doctor({ env: { STUB_DOCKER_UP: "0", STUB_IMAGE_LABELS: "", STUB_KEYCHAIN_ITEM: "0" } });
+		assert.equal(run.status, 0, run.stdout);
+		assert.equal(run.count("FAIL"), 0, run.stdout);
+		assert.equal(run.count("SKIP"), 1);
+		assert.match(run.line("docker:"), /^SKIP {2}docker: daemon and image not checked; only headless runs \(docker\/pi-run\.sh\) need them\. Include them: .*scripts\/doctor\.sh --docker$/);
+		assert.ok(!run.stdout.includes("image:"), "no image line");
+		assert.equal(run.dockerCalls, "", "docker is not called at all");
+		for (const line of run.lines.slice(0, -1)) assert.match(line, /^(PASS|WARN|FAIL|SKIP) {2}\S/);
+		// A SKIP is neither a warning nor a failure in the summary.
+		assert.match(run.lines.at(-1)!, /^doctor: 0 failed, 1 warning\(s\)$/);
+		assert.equal(doctor({ without: ["docker"] }).status, 0, "a machine without Docker is ready for interactive sessions");
+	});
+
+	it("--docker fails when the Docker daemon is down and does not guess about the image", () => {
+		const run = doctor({ args: ["--docker"], env: { STUB_DOCKER_UP: "0" } });
 		assert.equal(run.status, 1);
 		assert.match(run.line("docker:"), /^FAIL {2}docker: the daemon is not reachable\. Fix: start Docker Desktop$/);
 		assert.match(run.line("image:"), /^FAIL {2}image: not checked, Docker is not reachable\. Fix: .*build-image\.sh$/);
+		assert.equal(run.dockerCalls.trim(), "info", "the image is not inspected through a daemon that is down");
 	});
 
 	it("fails without an OpenRouter login; an exported key only earns warnings and is never printed", () => {
@@ -230,16 +251,27 @@ describe("scripts/doctor.sh", () => {
 		assert.ok(both.line("credential: OPENROUTER_API_KEY is exported").startsWith("WARN  "));
 	});
 
-	it("checks the Keychain item for existence only", () => {
+	it("checks the Keychain item for existence only: a warning for the probe, a failure with --docker", () => {
 		const present = doctor();
 		assert.equal(present.securityCalls.trim(), "find-generic-password -a tester -s pecker-nest-container-key", "no -w: the key is not read");
-		const missing = doctor({ env: { STUB_KEYCHAIN_ITEM: "0" } });
+		assert.ok(present.line("credential: Keychain item pecker-nest-container-key exists").startsWith("PASS  "), "checked without --docker too");
+		// Without --docker only the live probe reads the item, and it also takes PROBE_OPENROUTER_API_KEY.
+		const forProbe = doctor({ env: { STUB_KEYCHAIN_ITEM: "0" } });
+		assert.equal(forProbe.status, 0, forProbe.stdout);
+		assert.match(
+			forProbe.line("credential: Keychain item"),
+			/^WARN .*is missing; the live probe \(scripts\/probe-openrouter\.ts\) reads it.*Fix: security add-generic-password -U -a "tester" -s pecker-nest-container-key -w$/,
+		);
+		const missing = doctor({ args: ["--docker"], env: { STUB_KEYCHAIN_ITEM: "0" } });
 		assert.equal(missing.status, 1);
 		assert.match(
 			missing.line("credential: Keychain item"),
 			/^FAIL .*is missing.*Fix: security add-generic-password -U -a "tester" -s pecker-nest-container-key -w$/,
 		);
 		assert.doesNotMatch(missing.securityCalls, /-w/);
+		// No Keychain at all (Linux): a warning either way, with the variable that replaces it.
+		assert.match(doctor({ without: ["security"] }).line("credential: no Keychain"), /^WARN .*Fix: set PROBE_OPENROUTER_API_KEY /);
+		assert.match(doctor({ args: ["--docker"], without: ["security"] }).line("credential: no Keychain"), /^WARN .*Fix: set PI_RUN_OPENROUTER_API_KEY /);
 	});
 
 	it("fails for a missing Flash or GLM, warns for a missing Kimi", () => {
@@ -263,7 +295,7 @@ describe("scripts/doctor.sh", () => {
 			[`${HEAD}|1`, /^FAIL {2}image: pecker-nest-pi was built with uncommitted changes.*build-image\.sh$/],
 		];
 		for (const [labels, expected] of cases) {
-			const run = doctor({ env: { STUB_IMAGE_LABELS: labels } });
+			const run = doctor({ args: ["--docker"], env: { STUB_IMAGE_LABELS: labels } });
 			assert.equal(run.status, 1, labels);
 			assert.match(run.line("image:"), expected);
 		}
@@ -297,8 +329,19 @@ describe("scripts/doctor.sh", () => {
 		assert.ok(!doctor().stdout.includes("target:"), "without --repo the target checks do not run");
 	});
 
+	it("takes --docker and --repo together, in either order", () => {
+		const good = targetRepo({ ".pi/protect.json": '{"write":[]}', ".pi/gate.json": '{"command":"pnpm run check"}', "AGENTS.md": "# Project\nAll filled in.\n" });
+		for (const args of [["--docker", "--repo", good], ["--repo", good, "--docker"]]) {
+			const run = doctor({ args });
+			assert.equal(run.status, 0, run.stdout);
+			assert.ok(run.line("image:").startsWith("PASS  "));
+			assert.ok(run.line("target: .pi/gate.json").startsWith("PASS  "));
+		}
+	});
+
 	it("rejects unknown arguments", () => {
 		assert.equal(doctor({ args: ["--nope"] }).status, 2);
 		assert.equal(doctor({ args: ["--repo"] }).status, 2);
+		assert.match(doctor({ args: ["--help"] }).stderr, /usage: scripts\/doctor\.sh \[--docker\] \[--repo <path>\]/);
 	});
 });

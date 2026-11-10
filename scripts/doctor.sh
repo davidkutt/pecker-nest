@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
-# Tells you whether this machine is ready for nest: tools, links, credentials, models, image.
+# Tells you whether this machine is ready for nest: tools, links, credentials, models.
 #
-#   scripts/doctor.sh                 check the machine
+#   scripts/doctor.sh                 check the machine for interactive sessions
+#   scripts/doctor.sh --docker        also check what headless runs need (docker/pi-run.sh): the
+#                                     Docker daemon, the image, and the container key as a must
 #   scripts/doctor.sh --repo <path>   also check a repository nest is about to work in
 #
 # Every check prints one line that starts with PASS, WARN or FAIL; a WARN or FAIL line ends with
-# the fix. Exit code 1 when any check failed, else 0. The script only reads: it changes nothing,
+# the fix. A SKIP line names checks that were left out and how to include them; it counts as
+# neither. Exit code 1 when any check failed, else 0. The script only reads: it changes nothing,
 # prints no secret and makes no request that costs tokens.
 #
 # Runs under macOS bash 3.2 and is fine to call from fish.
 set -uo pipefail
 
 usage() {
-  echo "usage: scripts/doctor.sh [--repo <path>]" >&2
+  echo "usage: scripts/doctor.sh [--docker] [--repo <path>]" >&2
   exit 2
 }
 
 target_repo=""
+check_docker=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --docker)
+      check_docker=1
+      shift
+      ;;
     --repo)
       [[ $# -ge 2 ]] || usage
       target_repo="$2"
@@ -46,6 +54,7 @@ fail() {
   echo "FAIL  $1"
   fails=$((fails + 1))
 }
+skip() { echo "SKIP  $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # version_cmp A B prints -1, 0 or 1. Compares major.minor.patch; a leading "v" and suffixes such
@@ -136,8 +145,11 @@ else
   fail "uv: not found on PATH. Fix: brew install uv"
 fi
 
+# Headless runs in Docker are deferred, so the daemon and the image are checked only on request.
 docker_ok=0
-if ! have docker; then
+if [[ "$check_docker" != 1 ]]; then
+  skip "docker: daemon and image not checked; only headless runs (docker/pi-run.sh) need them. Include them: $nest_dir/scripts/doctor.sh --docker"
+elif ! have docker; then
   fail "docker: not found on PATH. Fix: install Docker Desktop and start it"
 elif docker info >/dev/null 2>&1; then
   docker_ok=1
@@ -180,15 +192,21 @@ else
   warn "credential: OPENROUTER_API_KEY is exported; Pi uses the login and pi-run.sh ignores the variable, so it only risks spending the key without a limit elsewhere. Fix: remove the export from your shell config (bash/zsh: unset OPENROUTER_API_KEY; fish: set -e OPENROUTER_API_KEY)"
 fi
 
+# The same item serves docker/pi-run.sh and the live probe (scripts/probe-openrouter.ts). Without
+# --docker only the probe needs it, and the probe also takes PROBE_OPENROUTER_API_KEY: a warning.
 if have security; then
   # Existence only: without -w the password is neither read nor printed.
   if security find-generic-password -a "$keychain_user" -s "$keychain_service" >/dev/null 2>&1; then
-    pass "credential: Keychain item $keychain_service exists (the container key for docker/pi-run.sh)"
-  else
+    pass "credential: Keychain item $keychain_service exists (the key for the live probe and for docker/pi-run.sh)"
+  elif [[ "$check_docker" == 1 ]]; then
     fail "credential: Keychain item $keychain_service is missing, so docker/pi-run.sh has no container key. Fix: security add-generic-password -U -a \"$keychain_user\" -s $keychain_service -w"
+  else
+    warn "credential: Keychain item $keychain_service is missing; the live probe (scripts/probe-openrouter.ts) reads it, and so will docker/pi-run.sh. Fix: security add-generic-password -U -a \"$keychain_user\" -s $keychain_service -w"
   fi
-else
+elif [[ "$check_docker" == 1 ]]; then
   warn "credential: no Keychain on this system (no security tool), so the container key is not stored. Fix: set PI_RUN_OPENROUTER_API_KEY for each docker/pi-run.sh call"
+else
+  warn "credential: no Keychain on this system (no security tool), so the key for the live probe is not stored. Fix: set PROBE_OPENROUTER_API_KEY for each scripts/probe-openrouter.ts call"
 fi
 
 # ------------------------------------------------------------------ models
@@ -216,7 +234,9 @@ fi
 # ------------------------------------------------------------------ image
 
 head_commit="$(git -C "$nest_dir" rev-parse HEAD 2>/dev/null)"
-if [[ "$docker_ok" != 1 ]]; then
+if [[ "$check_docker" != 1 ]]; then
+  : # Left out together with the daemon check above; the SKIP line there covers both.
+elif [[ "$docker_ok" != 1 ]]; then
   fail "image: not checked, Docker is not reachable. Fix: start Docker Desktop, then $nest_dir/scripts/build-image.sh"
 elif ! labels="$(docker image inspect --format '{{ index .Config.Labels "nest.commit" }}|{{ index .Config.Labels "nest.dirty" }}' "$image" 2>/dev/null)"; then
   fail "image: $image does not exist. Fix: $nest_dir/scripts/build-image.sh"

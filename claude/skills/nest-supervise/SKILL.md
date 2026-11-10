@@ -13,7 +13,7 @@ nest (Pi with DeepSeek V4.1 Flash and GLM 5.3, configured in `~/dev/pecker-nest`
 
 1. Record the repository, branch, `git rev-parse HEAD`, the time and the task. The task is `$ARGUMENTS`; if it is empty, ask David for it in one line. If it names a brief (for example `docs/milestones/M1.md`), read it and note its acceptance checks.
 2. Create the field note `~/dev/pecker-nest/field-notes/<YYYY-MM-DD>-<repo>-<short-task-slug>.md` from `~/dev/pecker-nest/field-notes/TEMPLATE.md` and fill in the Session section. Note the pecker-nest commit (`git -C ~/dev/pecker-nest rev-parse --short HEAD`) and `pi --version`.
-3. Check the setup: run `~/dev/pecker-nest/scripts/doctor.sh --repo "$PWD"` and copy every `WARN` and `FAIL` line into the field note; each ends with its fix. It covers the tools, the links, the OpenRouter login, the models, the container key and image, and this repository's `.pi/protect.json`, `.pi/gate.json` and `AGENTS.md`. It cannot see whether the project is trusted in Pi; ask David if the gate does not run. Do not fix the setup yourself; tell David.
+3. Check the setup: run `~/dev/pecker-nest/scripts/doctor.sh --repo "$PWD"` and copy every `WARN` and `FAIL` line into the field note; each ends with its fix. It covers the tools, the links, the OpenRouter login, the models and the key for the live probe, and this repository's `.pi/protect.json`, `.pi/gate.json` and `AGENTS.md`. The Docker daemon and the image are left out (one `SKIP` line): only headless runs need them, so do not add `--docker` and do not copy that line. It cannot see whether the project is trusted in Pi; ask David if the gate does not run. Do not fix the setup yourself; tell David.
 
 ## During the session
 
