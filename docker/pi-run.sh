@@ -10,9 +10,22 @@
 # independent check.
 #
 # Environment:
-#   PI_RUN_OPENROUTER_API_KEY  the container's own OpenRouter key (with a credit limit); it
-#                      reaches the container as OPENROUTER_API_KEY. Without it, OPENROUTER_API_KEY
-#                      is used with a warning.
+# The container runs Pi with --approve, so it only gets the container's own OpenRouter key (the
+# one with a credit limit). The key is looked up in this order and reaches the container as
+# OPENROUTER_API_KEY, through the environment only:
+#   1. PI_RUN_OPENROUTER_API_KEY
+#   2. the macOS Keychain item (wherever the `security` tool exists):
+#        security find-generic-password -a "$USER" -s pecker-nest-container-key -w
+#      Store it once with (asks for the key, so it stays out of the shell history):
+#        security add-generic-password -U -a "$USER" -s pecker-nest-container-key -w
+#   3. OPENROUTER_API_KEY, only with PI_RUN_ALLOW_INTERACTIVE_KEY=1
+# Without a key the script exits 64. It never uses the interactive key on its own.
+#
+# Environment:
+#   PI_RUN_OPENROUTER_API_KEY     the container key, see above
+#   PI_RUN_KEYCHAIN_SERVICE       Keychain service name (default: pecker-nest-container-key)
+#   PI_RUN_ALLOW_INTERACTIVE_KEY  1 lets the run spend OPENROUTER_API_KEY (no credit limit)
+#   PI_RUN_ALLOW_STALE_IMAGE      1 runs an image that was not built from the repo's HEAD
 #   PI_IMAGE           image name (default: pecker-nest-pi)
 #   PI_RUN_LOG_DIR     where logs go (default: <pecker-nest>/runs)
 #   PI_RUN_SETUP       setup command instead of the lockfile default; empty skips setup
@@ -21,7 +34,13 @@
 #
 # Logs per run: <id>.jsonl (Pi event stream) and <id>.stderr.log (Pi diagnostics plus the setup,
 # model refresh and gate output between `=== setup` / `=== models` / `=== gate` marker lines).
-# Exit code: Pi's exit code if it failed, 3 if setup failed, 2 if the gate is red, else 0.
+#
+# The image holds a copy of this repo (gates, router, settings). Before the run starts, the image's
+# nest.commit label (set by scripts/build-image.sh) must equal the repo's HEAD; a mismatch, a
+# missing label or nest.dirty=1 stops the run with the rebuild command.
+#
+# Exit code: Pi's exit code if it failed, 3 if setup failed, 2 if the gate is red, 64 for a wrong
+# call or a missing key, 65 for a missing or stale image, else 0.
 set -euo pipefail
 
 usage() {
@@ -38,18 +57,68 @@ fi
 repo="$(cd "$repo" && pwd -P)"
 task="$*"
 [[ -n "$task" ]] || usage
-if [[ -n "${PI_RUN_OPENROUTER_API_KEY:-}" ]]; then
-  key="$PI_RUN_OPENROUTER_API_KEY"
-elif [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+
+# The container key. Never printed, never logged, never on a command line.
+keychain_service="${PI_RUN_KEYCHAIN_SERVICE:-pecker-nest-container-key}"
+keychain_user="${USER:-$(id -un)}"
+key="${PI_RUN_OPENROUTER_API_KEY:-}"
+if [[ -z "$key" ]] && command -v security >/dev/null 2>&1; then
+  key="$(security find-generic-password -a "$keychain_user" -s "$keychain_service" -w 2>/dev/null || true)"
+fi
+if [[ -z "$key" && "${PI_RUN_ALLOW_INTERACTIVE_KEY:-}" == 1 && -n "${OPENROUTER_API_KEY:-}" ]]; then
   key="$OPENROUTER_API_KEY"
-  echo "warning: using OPENROUTER_API_KEY; set PI_RUN_OPENROUTER_API_KEY to the container key with a credit limit" >&2
-else
-  echo "error: set PI_RUN_OPENROUTER_API_KEY (container key) or OPENROUTER_API_KEY" >&2
+  echo "warning: PI_RUN_ALLOW_INTERACTIVE_KEY=1: this run spends OPENROUTER_API_KEY, which has no credit limit" >&2
+fi
+if [[ -z "$key" ]]; then
+  {
+    echo "error: no container key. Store the OpenRouter key with the credit limit in the macOS Keychain:"
+    echo "         security add-generic-password -U -a \"$keychain_user\" -s $keychain_service -w"
+    echo "       (it asks for the key, so the key stays out of your shell history), or set"
+    echo "       PI_RUN_OPENROUTER_API_KEY for this run."
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+      echo "       OPENROUTER_API_KEY is set but not used: the container runs with --approve and that"
+      echo "       key has no credit limit. PI_RUN_ALLOW_INTERACTIVE_KEY=1 overrides this."
+    fi
+  } >&2
   exit 64
 fi
 
 image="${PI_IMAGE:-pecker-nest-pi}"
 nest_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+# A stale image runs old gates and old routing without any sign, so it does not run at all.
+rebuild="$nest_dir/scripts/build-image.sh"
+if ! labels="$(docker image inspect --format '{{ index .Config.Labels "nest.commit" }}|{{ index .Config.Labels "nest.dirty" }}' "$image" 2>/dev/null)"; then
+  echo "error: image $image not found (or Docker is not running). Build it: $rebuild" >&2
+  exit 65
+fi
+image_commit="${labels%%|*}"
+image_dirty="${labels#*|}"
+head_commit="$(git -C "$nest_dir" rev-parse HEAD 2>/dev/null || true)"
+stale=""
+if [[ -z "$image_commit" || "$image_commit" == "<no value>" ]]; then
+  stale="it has no nest.commit label (built with plain docker build)"
+elif [[ -z "$head_commit" ]]; then
+  stale="the commit of $nest_dir cannot be read"
+elif [[ "$image_commit" != "$head_commit" ]]; then
+  stale="it was built from ${image_commit:0:7}, the repo is at ${head_commit:0:7}"
+elif [[ "$image_dirty" != 0 ]]; then
+  stale="it was built from a working tree with uncommitted changes (nest.dirty=$image_dirty)"
+fi
+if [[ -n "$stale" ]]; then
+  if [[ "${PI_RUN_ALLOW_STALE_IMAGE:-}" == 1 ]]; then
+    echo "warning: PI_RUN_ALLOW_STALE_IMAGE=1: running image $image although $stale" >&2
+  else
+    {
+      echo "error: image $image is stale: $stale."
+      echo "       Build it again: $rebuild"
+      echo "       (PI_RUN_ALLOW_STALE_IMAGE=1 runs it anyway.)"
+    } >&2
+    exit 65
+  fi
+elif [[ -n "$(git -C "$nest_dir" status --porcelain 2>/dev/null)" ]]; then
+  echo "note: $nest_dir has uncommitted changes that are not in image $image" >&2
+fi
 log_dir="${PI_RUN_LOG_DIR:-$nest_dir/runs}"
 run_id="$(date +%Y%m%d-%H%M%S)-$(basename "$repo")"
 mkdir -p "$log_dir"

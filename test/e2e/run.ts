@@ -39,10 +39,38 @@ function agentRole(request: MockRequest): string | undefined {
 	return /You are `(scout|planner|worker|reviewer)`/.exec(request.system)?.[1];
 }
 
+/** What OpenRouter answers when ZDR plus require_parameters leave a model without a provider. */
+const NO_ENDPOINTS = {
+	status: 404,
+	message: "No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy",
+};
+let rateLimitedOnce = false;
+
+/** Scenarios in which OpenRouter refuses a strong model at request time. */
+function refusal(request: MockRequest): Reply | undefined {
+	switch (request.scenario) {
+		case "fail-404":
+		case "fail-404-loop":
+			return request.model === KIMI ? { error: NO_ENDPOINTS } : undefined;
+		case "fail-both":
+			return request.model === FLASH ? undefined : { error: NO_ENDPOINTS };
+		case "fail-400":
+			return request.model === KIMI ? { error: { status: 400, message: "Provider returned error" } } : undefined;
+		case "fail-429":
+			if (request.model !== GLM || rateLimitedOnce) return undefined;
+			rateLimitedOnce = true;
+			return { error: { status: 429, message: "Rate limit exceeded" } };
+		default:
+			return undefined;
+	}
+}
+
 function respond(request: MockRequest): Reply {
 	const step = request.stepInScenario;
 	const role = agentRole(request);
 	if (role) return respondAsSubagent(role, request);
+	const refused = refusal(request);
+	if (refused) return refused;
 
 	switch (request.scenario) {
 		case "defaults":
@@ -78,6 +106,16 @@ function respond(request: MockRequest): Reply {
 			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Kimi plan\n" }) : say("planned on kimi");
 		case "strong-loop":
 			// The same failing command three times, then whatever the escalated model says.
+			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
+		case "kimi-replay":
+			// Flash thinks and calls a tool three times; the escalated model then gets that history.
+			return step < 3 ? { ...tool("bash", { command: "npm run missing-script" }), reasoning: `flash thought ${step}` } : say("took over");
+		case "fail-404":
+		case "fail-400":
+		case "fail-429":
+			return step === 0 ? tool("write", { path: "PLAN.md", content: "# Fallback plan\n" }) : say("planned on the fallback");
+		case "fail-404-loop":
+		case "fail-both":
 			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
 		case "strong-back":
 			return say("back on glm");
@@ -260,7 +298,7 @@ function assertChain(scenario: string) {
 	}
 	assert.deepEqual([...byRole.keys()], ["scout", "planner", "worker", "reviewer"]);
 	const assigned = [...byRole.values()].map((request) => `${request.model}:${request.effort}`);
-	assert.deepEqual(assigned, [`${FLASH}:low`, `${GLM}:max`, `${FLASH}:high`, `${GLM}:high`]);
+	assert.deepEqual(assigned, [`${FLASH}:low`, `${GLM}:max`, `${FLASH}:high`, `${GLM}:max`]);
 	for (const request of byRole.values()) assert.deepEqual(request.routing, ROUTING, "subagents use the same provider routing");
 	const reviewerTools = byRole.get("reviewer")!.toolNames;
 	for (const writer of ["edit", "write", "bash"]) assert.ok(!reviewerTools.includes(writer), `reviewer has ${writer}`);
@@ -297,6 +335,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			for (const name of ["todo", "questionnaire"]) assert.ok(requests[0].toolNames.includes(name), `the vendored ${name} tool is loaded`);
 			assert.match(requests[0].system, /testing-ts/, "package skills are listed");
 			assert.doesNotMatch(requests[0].system, /grill-me/, "grill-me is manual only");
+			assert.match(requests[0].system, /# Working principles/, "APPEND_SYSTEM.md is part of the system prompt");
+			// No instruction about tools that do not exist: the knowledge-base rule comes back with the server (RUNBOOK M3).
+			const kbServers = Object.keys(JSON.parse(readFileSync(join(NEST, "agent/mcp.json"), "utf-8")).mcpServers ?? {});
+			if (kbServers.length === 0) assert.doesNotMatch(requests[0].system, /mcp__kb__/, "the system prompt names knowledge-base tools although no MCP server is registered");
 			assert.equal(requests[1].sessionId, requests[0].sessionId, "one session id per session");
 			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
 			assert.deepEqual(
@@ -406,8 +448,8 @@ const scenarios: [string, () => Promise<void>][] = [
 			const round2 = requests.findIndex((request) => request.lastUserText.includes("Repair round 2 of 2"));
 			assert.ok(round2 > 0, "the gate reached repair round 2");
 			assert.ok(requests.slice(0, round2).every((request) => request.model === FLASH), "Flash until round 2");
-			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "high"), "GLM high from round 2");
-			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(gate: quality gate still red at repair round 2\)/);
+			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "max"), "GLM max from round 2");
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(gate: quality gate still red at repair round 2\)/);
 			// The session report reads the same session back.
 			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
 				encoding: "utf-8",
@@ -428,9 +470,9 @@ const scenarios: [string, () => Promise<void>][] = [
 			const repo = makeRepo("router-loop", {}, false);
 			const run = await runPi(repo, ["-p", "[scenario:router-loop] run the script"]);
 			assert.equal(run.code, 0, run.stderr);
-			const models = requestsFor("router-loop").map((request) => request.model);
-			assert.deepEqual(models, [FLASH, FLASH, FLASH, GLM]);
-			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(loop: the same bash call 3 times in a row\)/);
+			const routed = requestsFor("router-loop").map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed, [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${GLM}:max`]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(loop: the same bash call 3 times in a row\)/);
 		},
 	],
 	[
@@ -439,8 +481,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			const repo = makeRepo("router-hard", {}, false);
 			const run = await runPi(repo, ["-p", "/hard", "[scenario:router-hard] one", "[scenario:router-hard] two", "/flash", "[scenario:router-soft] three"]);
 			assert.equal(run.code, 0, run.stderr);
-			assert.deepEqual(requestsFor("router-hard").map((request) => request.model), [GLM, GLM]);
-			assert.deepEqual(requestsFor("router-soft").map((request) => request.model), [FLASH]);
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("router-hard"), [`${GLM}:max`, `${GLM}:max`]);
+			assert.deepEqual(routed("router-soft"), [`${FLASH}:high`]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(hard\)/);
 		},
 	],
 	[
@@ -461,10 +505,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.equal(run.code, 0, run.stderr);
 			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
 			assert.deepEqual(routed("strong-plan"), [`${KIMI}:max`, `${KIMI}:max`], "/plan runs on Kimi at max, including its tool calls");
-			assert.deepEqual(routed("strong-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:high`], "a loop escalates to Kimi, not GLM");
+			assert.deepEqual(routed("strong-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:max`], "a loop escalates to Kimi, not GLM");
 			assert.deepEqual(routed("strong-back"), [`${FLASH}:high`], "/strong glm alone does not escalate");
 			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at max \(plan\)/);
-			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at high \(loop: the same bash call 3 times in a row\)/);
+			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at max \(loop: the same bash call 3 times in a row\)/);
 			assert.ok(!requestsFor("strong-plan").some((request) => request.model === GLM), "GLM is not called while kimi is selected");
 			assert.ok(!requestsFor("strong-loop").some((request) => request.model === GLM));
 			for (const request of requestsFor("strong-plan")) assert.deepEqual(request.routing, ROUTING, "Kimi gets the same provider routing");
@@ -480,6 +524,28 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.deepEqual(stats.escalations, { plan: 1, loop: 1 });
 			assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
 			assert.ok(stats.models[KIMI].requests > 0, "Kimi appears in the model table");
+		},
+	],
+	[
+		"Kimi K3.1 Pro accepts a tool loop that Flash started: every replayed assistant message carries reasoning_content",
+		async () => {
+			const repo = makeRepo("kimi-replay", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "[scenario:kimi-replay] run the script"]);
+			assert.equal(run.code, 0, run.stderr);
+			const requests = requestsFor("kimi-replay");
+			assert.deepEqual(requests.map((request) => request.model), [FLASH, FLASH, FLASH, KIMI], "Flash loops, Kimi takes over mid-run");
+			const assistants = (request: MockRequest) => request.messages.filter((message) => message.role === "assistant");
+			// Flash gets its own thinking back; Pi drops it when another model takes over.
+			assert.ok(JSON.stringify(assistants(requests[2])).includes("flash thought 0"), "Flash replays its own reasoning");
+			const kimi = requests[3];
+			const replayed = assistants(kimi);
+			assert.equal(replayed.length, 3, "Kimi gets Flash's three tool-call turns");
+			assert.ok(replayed.every((message) => message.tool_calls?.length), "each replayed turn is a tool call");
+			assert.ok(!JSON.stringify(replayed).includes("flash thought"), "Flash's thinking is not passed on to Kimi");
+			// Moonshot rejects a tool-call message without reasoning_content (HTTP 400). The
+			// modelOverrides entry in agent/models.json makes Pi send the field, empty.
+			for (const message of replayed) assert.ok("reasoning_content" in message, "a replayed assistant message has no reasoning_content field");
+			assert.deepEqual(kimi.routing, ROUTING, "the override's compat merges with the provider-level routing");
 		},
 	],
 	[
@@ -504,18 +570,71 @@ const scenarios: [string, () => Promise<void>][] = [
 		},
 	],
 	[
+		"a strong model without an endpoint (404) is ruled out: the run continues on GLM 5.3 with one notice, and later escalations skip it",
+		async () => {
+			const repo = makeRepo("fail-404", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "/plan the next step [scenario:fail-404]", "[scenario:fail-404-loop] run the script"]);
+			assert.equal(run.code, 0, `the run continues instead of ending with the error: ${run.stderr}`);
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("fail-404"), [`${KIMI}:max`, `${GLM}:max`, `${GLM}:max`], "the plan continues on GLM at max");
+			const [refused, retried] = requestsFor("fail-404");
+			assert.equal(retried.messages.length, refused.messages.length, "GLM gets the conversation without the failed attempt");
+			assert.deepEqual(retried.routing, ROUTING);
+			assert.match(retried.lastUserText, /The only file you may create or change is `PLAN.md`/, "the continuation is still the /plan prompt");
+			assert.equal(sh(repo, "git status --porcelain").trim(), "?? PLAN.md", "the fallback wrote the plan");
+			assert.deepEqual(routed("fail-404-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${GLM}:max`], "a later escalation skips Kimi");
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, no endpoint under the routing rules \(404: No endpoints found matching your data policy.*\); using GLM 5\.3 instead/);
+		},
+	],
+	[
+		"when both strong models have no endpoint, the run continues on Flash",
+		async () => {
+			const repo = makeRepo("fail-both", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "[scenario:fail-both] run the script"]);
+			assert.equal(run.code, 0, run.stderr);
+			const routed = requestsFor("fail-both").map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(
+				routed,
+				[`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:max`, `${GLM}:max`, `${FLASH}:high`],
+				"the escalation tries Kimi, then GLM, then goes on with Flash",
+			);
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 2, `one notice per model, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, .*; using GLM 5\.3 instead/);
+			assert.match(notices[1], /GLM 5\.3 failed, .*; using DeepSeek V4\.1 Flash instead/);
+		},
+	],
+	[
+		"a rejected request (HTTP 400) switches models in Pi's retry; a rate limit retries the same model",
+		async () => {
+			const repo = makeRepo("fail-400", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "/plan the next step [scenario:fail-400]", "/plan one more step [scenario:fail-429]"]);
+			assert.equal(run.code, 0, run.stderr);
+			const models = (scenario: string) => requestsFor(scenario).map((request) => request.model);
+			// Pi retries "Provider returned error" itself; the router answers the retry with GLM.
+			assert.deepEqual(models("fail-400"), [KIMI, GLM, GLM], "one failed request on Kimi, then GLM");
+			// GLM answers 429 once: Pi retries, and the router keeps the model.
+			assert.deepEqual(models("fail-429"), [GLM, GLM, GLM], "a rate limit does not rule the model out");
+			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
+			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
+			assert.match(notices[0], /Kimi K3\.1 Pro failed, the request was rejected \(400: Provider returned error\); using GLM 5\.3 instead/);
+		},
+	],
+	[
 		"a per-run override reviews the diff on Kimi while the reviewer role stays on GLM",
 		async () => {
 			const repo = makeRepo("reviewer-kimi", { "src/a.ts": "export const a = 1;\n" }, false);
 			// /run needs a live session, like /prompt-workflow, so this runs over RPC like the TUI.
-			await runPiRpc(repo, `/run reviewer[model=openrouter/${KIMI}:high] [scenario:reviewer-kimi] review the diff`, () =>
+			await runPiRpc(repo, `/run reviewer[model=openrouter/${KIMI}:max] [scenario:reviewer-kimi] review the diff`, () =>
 				requestsFor("reviewer-kimi").some((request) => agentRole(request) === "reviewer"),
 			);
 			const reviewer = requestsFor("reviewer-kimi").filter((request) => agentRole(request) === "reviewer");
 			assert.ok(reviewer.length >= 1, "the reviewer ran");
 			assert.ok(
-				reviewer.every((request) => request.model === KIMI && request.effort === "high"),
-				`the per-run override puts the reviewer on Kimi at high, got ${reviewer.map((r) => `${r.model}:${r.effort}`).join(", ")}`,
+				reviewer.every((request) => request.model === KIMI && request.effort === "max"),
+				`the per-run override puts the reviewer on Kimi at max, got ${reviewer.map((r) => `${r.model}:${r.effort}`).join(", ")}`,
 			);
 			for (const request of reviewer) assert.deepEqual(request.routing, ROUTING);
 			const reviewerTools = reviewer[0].toolNames;

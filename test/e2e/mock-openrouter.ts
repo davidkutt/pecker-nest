@@ -4,7 +4,8 @@
  *
  * Every request is answered by `respond()`, which looks at the conversation and returns text
  * or tool calls. Each request is appended to `requests` for assertions. `GET /models/user`
- * answers 404, so Pi keeps its bundled OpenRouter catalog, as it does behind a proxy.
+ * answers 404, so Pi keeps its bundled OpenRouter catalog, as it does behind a proxy. Other GET
+ * routes (the endpoint lists the probe reads) can be served through the `get` option.
  */
 
 import { appendFileSync } from "node:fs";
@@ -14,12 +15,18 @@ export interface ToolUse {
 	name: string;
 	input: Record<string, unknown>;
 }
-export type Reply = { text?: string; tools?: ToolUse[] };
+/**
+ * `reasoning` is streamed before the answer in OpenRouter's `reasoning` delta field. `error`
+ * answers with that HTTP status and OpenRouter's error body instead of a completion.
+ */
+export type Reply = { text?: string; tools?: ToolUse[]; reasoning?: string; error?: { status: number; message: string } };
 
 export interface ChatMessage {
 	role: string;
 	content?: unknown;
 	tool_calls?: { function?: { name?: string } }[];
+	/** Replayed reasoning. Some providers reject an assistant message without this field. */
+	reasoning_content?: unknown;
 }
 
 export interface MockRequest {
@@ -36,6 +43,8 @@ export interface MockRequest {
 	/** Tools declared in `tools` plus tools added mid-conversation in a system message. */
 	toolNames: string[];
 	messages: ChatMessage[];
+	/** The request body as Pi sent it. */
+	body: Record<string, unknown>;
 	/** Text of every message after the last assistant message: tool results and user input. */
 	lastUserText: string;
 	/** Text of the first user message (the task). */
@@ -46,6 +55,8 @@ export interface MockRequest {
 }
 
 export type Responder = (request: MockRequest) => Reply;
+/** Answers a GET route with a JSON body, or undefined for 404. `path` is the URL after `/api/v1`. */
+export type GetHandler = (path: string, headers: IncomingMessage["headers"]) => unknown | undefined;
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -75,6 +86,7 @@ function sse(reply: Reply, model: string): string {
 	const chunk = (delta: unknown, finish: string | null = null, usage?: unknown) =>
 		`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 0, model, choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
 	let out = chunk({ role: "assistant", content: "" });
+	if (reply.reasoning) out += chunk({ reasoning: reply.reasoning });
 	if (reply.text) out += chunk({ content: reply.text });
 	(reply.tools ?? []).forEach((tool, index) => {
 		out += chunk({
@@ -90,16 +102,20 @@ export class MockOpenRouter {
 	readonly requests: MockRequest[] = [];
 	private server: Server | undefined;
 	private readonly respond: Responder;
+	private readonly get: GetHandler | undefined;
 	port = 0;
 
-	constructor(respond: Responder) {
+	constructor(respond: Responder, options: { get?: GetHandler } = {}) {
 		this.respond = respond;
+		this.get = options.get;
 	}
 
 	async start(host = "127.0.0.1"): Promise<number> {
 		this.server = createServer(async (req, res) => {
 			if (req.method !== "POST" || !req.url?.includes("/chat/completions")) {
-				res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+				const found = req.method === "GET" && req.url ? this.get?.(req.url.replace(/^\/api\/v1/, ""), req.headers) : undefined;
+				if (found !== undefined) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(found));
+				else res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
 				return;
 			}
 			const raw = await readBody(req);
@@ -127,6 +143,7 @@ export class MockOpenRouter {
 					...new Set([...(body.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name), ...declaredTools(messages)]),
 				],
 				messages,
+				body,
 				lastUserText: messages
 					.slice(lastAssistant + 1)
 					.filter((message) => message.role === "user" || message.role === "tool")
@@ -142,6 +159,11 @@ export class MockOpenRouter {
 				reply = this.respond(request);
 			} catch (error) {
 				reply = { text: `mock error: ${error instanceof Error ? error.message : String(error)}` };
+			}
+			if (reply.error) {
+				res.writeHead(reply.error.status, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { message: reply.error.message, code: reply.error.status } }));
+				return;
 			}
 			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			res.end(sse(reply, body.model));
