@@ -1,6 +1,6 @@
 # Pi with the pecker-nest configuration baked in, for headless runs (docker/pi-run.sh).
-# Build from the repository root:
-#   docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
+# Build with scripts/build-image.sh, which labels the image with the repo's commit (nest.commit,
+# nest.dirty). pi-run.sh refuses an image without that label or built from another commit.
 #
 # Based on the plain-Docker example in Pi's containerization docs, plus Python, uv and pnpm.
 # No credentials are baked in: pi-run.sh passes the OpenRouter key at run time.

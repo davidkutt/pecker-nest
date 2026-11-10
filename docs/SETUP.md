@@ -175,11 +175,10 @@ Danach zeigt `git status` nur eine neue `PLAN.md` (Abnahmetest 2). Weiter mit `/
 ## 6. Container einrichten (15 Minuten)
 
 ```bash
-cd ~/dev/pecker-nest
-docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
+~/dev/pecker-nest/scripts/build-image.sh
 ```
 
-Das Image enthält eine Kopie von `pecker-nest`. Bau es nach jeder Config-Änderung neu.
+Das Image enthält eine Kopie von `pecker-nest`, und `build-image.sh` schreibt den Commit als Label hinein (`nest.commit`, dazu `nest.dirty=1`, wenn beim Bauen uncommittete Änderungen im Repo lagen). `pi-run.sh` vergleicht das Label vor jedem Lauf mit dem `HEAD` des Repos und startet ein veraltetes Image nicht, sondern nennt den Befehl zum Neubauen. Ein vergessener Neubau fällt also sofort auf, statt still mit alten Gates und altem Routing zu laufen.
 
 Optional ohne Kosten: `npm run e2e:docker` prüft das Image mit dem Stand-in.
 
@@ -215,6 +214,7 @@ Erster echter Headless-Lauf:
 | „gate.json ignored: this project is not trusted“ | In dem Repo `/trust` ausführen. |
 | Ein Befehl wird mit „Blocked by safety-gate“ abgelehnt | Absicht. Wenn du ihn wirklich willst, führ ihn selbst aus: `!befehl` in Pi oder im Terminal. |
 | `pi-run.sh`: „error: no container key …“ | Der Container-Key fehlt im Schlüsselbund (Schritt 6). Ein exportierter `OPENROUTER_API_KEY` zählt absichtlich nicht. |
+| `pi-run.sh`: „image pecker-nest-pi is stale …“ | Das Image stammt nicht vom aktuellen Commit, hat kein Label (mit `docker build` von Hand gebaut) oder wurde mit uncommitteten Änderungen gebaut. `~/dev/pecker-nest/scripts/build-image.sh` ausführen; liegt es an `agent/settings.json`, vorher `git checkout agent/settings.json`. Bewusst trotzdem starten: `env PI_RUN_ALLOW_STALE_IMAGE=1 …/pi-run.sh …`. |
 | `pi-run.sh` meldet `models exit: 1` | Die Modellliste ließ sich nicht laden (keine Verbindung zu `pi.dev` oder `openrouter.ai`). Der Lauf geht mit Pis eingebautem Katalog weiter. |
 
 ## Rückgängig machen

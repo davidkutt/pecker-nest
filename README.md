@@ -37,9 +37,11 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── claude/skills/            Claude Code: /nest-supervise, /nest-handoff (linked by scripts/link.sh --claude)
 ├── field-notes/              local session notes (git-ignored except README and TEMPLATE)
 ├── templates/                AGENTS.*.md, gate.*.json; undertext/ (gate.json, protect.json)
-├── docker/                   Dockerfile.pi, pi-run.sh, task.sh
+├── docker/                   Dockerfile.pi, pi-run.sh (container key from the Keychain, refuses a stale
+│                             image), task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
+│   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── session-report.ts     cost, models, switches per reason and strong model, failed edits, loops,
 │   │                         gates from Pi's session logs
 │   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
@@ -64,8 +66,8 @@ npm ci
 npm run check        # typecheck + unit tests
 npm run e2e          # real Pi + scripted OpenRouter mock: models, routing, gates, protection, /plan, trust,
                      # router, subagents, review chain, session report
-docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
-npm run e2e:docker   # headless run in the container (acceptance tests 10, 11)
+scripts/build-image.sh   # pecker-nest-pi, labelled with the commit; pi-run.sh refuses a stale image
+npm run e2e:docker       # headless run in the container (acceptance tests 10, 11)
 ```
 
 The end-to-end tests cost no tokens: a local mock speaks OpenRouter's streaming chat-completions API and scripts the model's tool calls, so they check the wiring, not the models' judgment.

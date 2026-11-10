@@ -17,7 +17,7 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
 | M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 M1-Schritten |
 | M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
-| M6 Headless | `Dockerfile.pi`, `pi-run.sh` (eigener Container-Key), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Image bauen, Tests 10–11 |
+| M6 Headless | `Dockerfile.pi`, `build-image.sh` (Image mit Commit-Label), `pi-run.sh` (eigener Container-Key aus dem Schlüsselbund, startet kein veraltetes Image), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Container-Key in den Schlüsselbund, Image bauen, Tests 10–11 |
 | Neu | – | Tests 12 (Provider-Routing) und 13 (Caching) |
 
 ## Voraussetzungen
@@ -252,11 +252,13 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 ## M6 – Headless im Container (👤 ca. 30 Minuten)
 
-1. Image bauen. Nach jeder Config-Änderung neu bauen, denn das Image enthält eine Kopie des Repos:
+1. Image bauen. Es enthält eine Kopie des Repos, deshalb nach jeder Änderung neu bauen:
 
    ```bash
-   cd ~/dev/pecker-nest && docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
+   ~/dev/pecker-nest/scripts/build-image.sh
    ```
+
+   Das Skript baut `pecker-nest-pi` und setzt die Labels `nest.commit` (der `HEAD` des Repos) und `nest.dirty` (`1`, wenn uncommittete Änderungen im Repo lagen). `pi-run.sh` prüft sie vor jedem Lauf: Passt der Commit nicht zum `HEAD`, fehlt das Label oder ist `nest.dirty=1`, startet der Lauf nicht (Exit-Code 65) und nennt den Befehl zum Neubauen. `PI_RUN_ALLOW_STALE_IMAGE=1` übergeht die Prüfung.
 
 2. **Test 10:**
 
@@ -286,7 +288,7 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nimmt außerdem deren `mcp:`-Tools aus den Subagents, damit `planner` und `reviewer` trotzdem starten. Der Build zeigt das an, z. B. `mcp server kb: disabled in the container`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
 
-Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, 64 falscher Aufruf oder kein Container-Key, sonst der Exit-Code von Pi.
+Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, 64 falscher Aufruf oder kein Container-Key, 65 Image fehlt oder ist veraltet, sonst der Exit-Code von Pi.
 
 ## M7 – Dogfooding mit Claude: undertext M1 (👤)
 
@@ -333,7 +335,7 @@ Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` 
 ```bash
 cd ~/dev/pecker-nest
 npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung gegen dein installiertes Pi
-docker build -t pecker-nest-pi -f docker/Dockerfile.pi . && npm run e2e:docker
+scripts/build-image.sh && npm run e2e:docker
 ```
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).

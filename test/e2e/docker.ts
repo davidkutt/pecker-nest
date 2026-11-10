@@ -3,8 +3,11 @@
  * pecker-nest image against a scratch repository, with the scripted OpenRouter mock on the host.
  * The model breaks the gate once, repairs it, and tries to read a host path outside the repo.
  *
- *   docker build -t pecker-nest-pi -f docker/Dockerfile.pi .
+ *   scripts/build-image.sh
  *   node test/e2e/docker.ts
+ *
+ * The test runs from a working tree that may be ahead of the image or have uncommitted changes,
+ * so it sets PI_RUN_ALLOW_STALE_IMAGE=1; test/pi-run.test.ts covers the stale-image check itself.
  */
 
 import assert from "node:assert/strict";
@@ -51,6 +54,7 @@ const run = await new Promise<{ status: number | null; stdout: string; stderr: s
 			...process.env,
 			OPENROUTER_API_KEY: "",
 			PI_RUN_OPENROUTER_API_KEY: "sk-or-mock",
+			PI_RUN_ALLOW_STALE_IMAGE: "1",
 			PI_RUN_LOG_DIR: logs,
 			PI_RUN_DOCKER_ARGS: `--network host -v ${models}:/home/node/dev/pecker-nest/agent/models.json:ro`,
 		},

@@ -25,6 +25,7 @@
 #   PI_RUN_OPENROUTER_API_KEY     the container key, see above
 #   PI_RUN_KEYCHAIN_SERVICE       Keychain service name (default: pecker-nest-container-key)
 #   PI_RUN_ALLOW_INTERACTIVE_KEY  1 lets the run spend OPENROUTER_API_KEY (no credit limit)
+#   PI_RUN_ALLOW_STALE_IMAGE      1 runs an image that was not built from the repo's HEAD
 #   PI_IMAGE           image name (default: pecker-nest-pi)
 #   PI_RUN_LOG_DIR     where logs go (default: <pecker-nest>/runs)
 #   PI_RUN_SETUP       setup command instead of the lockfile default; empty skips setup
@@ -33,7 +34,13 @@
 #
 # Logs per run: <id>.jsonl (Pi event stream) and <id>.stderr.log (Pi diagnostics plus the setup,
 # model refresh and gate output between `=== setup` / `=== models` / `=== gate` marker lines).
-# Exit code: Pi's exit code if it failed, 3 if setup failed, 2 if the gate is red, else 0.
+#
+# The image holds a copy of this repo (gates, router, settings). Before the run starts, the image's
+# nest.commit label (set by scripts/build-image.sh) must equal the repo's HEAD; a mismatch, a
+# missing label or nest.dirty=1 stops the run with the rebuild command.
+#
+# Exit code: Pi's exit code if it failed, 3 if setup failed, 2 if the gate is red, 64 for a wrong
+# call or a missing key, 65 for a missing or stale image, else 0.
 set -euo pipefail
 
 usage() {
@@ -78,6 +85,40 @@ fi
 
 image="${PI_IMAGE:-pecker-nest-pi}"
 nest_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+# A stale image runs old gates and old routing without any sign, so it does not run at all.
+rebuild="$nest_dir/scripts/build-image.sh"
+if ! labels="$(docker image inspect --format '{{ index .Config.Labels "nest.commit" }}|{{ index .Config.Labels "nest.dirty" }}' "$image" 2>/dev/null)"; then
+  echo "error: image $image not found (or Docker is not running). Build it: $rebuild" >&2
+  exit 65
+fi
+image_commit="${labels%%|*}"
+image_dirty="${labels#*|}"
+head_commit="$(git -C "$nest_dir" rev-parse HEAD 2>/dev/null || true)"
+stale=""
+if [[ -z "$image_commit" || "$image_commit" == "<no value>" ]]; then
+  stale="it has no nest.commit label (built with plain docker build)"
+elif [[ -z "$head_commit" ]]; then
+  stale="the commit of $nest_dir cannot be read"
+elif [[ "$image_commit" != "$head_commit" ]]; then
+  stale="it was built from ${image_commit:0:7}, the repo is at ${head_commit:0:7}"
+elif [[ "$image_dirty" != 0 ]]; then
+  stale="it was built from a working tree with uncommitted changes (nest.dirty=$image_dirty)"
+fi
+if [[ -n "$stale" ]]; then
+  if [[ "${PI_RUN_ALLOW_STALE_IMAGE:-}" == 1 ]]; then
+    echo "warning: PI_RUN_ALLOW_STALE_IMAGE=1: running image $image although $stale" >&2
+  else
+    {
+      echo "error: image $image is stale: $stale."
+      echo "       Build it again: $rebuild"
+      echo "       (PI_RUN_ALLOW_STALE_IMAGE=1 runs it anyway.)"
+    } >&2
+    exit 65
+  fi
+elif [[ -n "$(git -C "$nest_dir" status --porcelain 2>/dev/null)" ]]; then
+  echo "note: $nest_dir has uncommitted changes that are not in image $image" >&2
+fi
 log_dir="${PI_RUN_LOG_DIR:-$nest_dir/runs}"
 run_id="$(date +%Y%m%d-%H%M%S)-$(basename "$repo")"
 mkdir -p "$log_dir"
