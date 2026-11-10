@@ -54,11 +54,28 @@ export function isDocsOnly(paths: Iterable<string>): boolean {
 	return any;
 }
 
-/** The last lines of a check's output, bounded for the model's context. */
-export function outputTail(output: string, maxLines = 80, maxChars = 8000): string {
-	const lines = output.trimEnd().split("\n");
-	let tail = lines.slice(-maxLines).join("\n");
-	if (tail.length > maxChars) tail = tail.slice(-maxChars);
-	const omitted = tail.length < output.trimEnd().length;
-	return omitted ? `…(earlier output omitted)\n${tail}` : tail;
+/**
+ * The start and the end of a check's output, bounded for the model's context. A check such as
+ * `lint && types && tests` prints its first failures at the top and the summary at the bottom, so
+ * long output keeps a head and a tail (3/8 and 5/8 of the line and character budget: 30 and 50
+ * lines by default) with a marker for what was left out in between.
+ */
+export function outputExcerpt(output: string, maxLines = 80, maxChars = 8000): string {
+	const text = output.trimEnd();
+	const lines = text.split("\n");
+	if (lines.length <= maxLines && text.length <= maxChars) return text;
+
+	const headLines = Math.floor((maxLines * 3) / 8);
+	const tailLines = maxLines - headLines;
+	const headChars = Math.floor((maxChars * 3) / 8);
+	const tailChars = maxChars - headChars;
+	const tooManyLines = lines.length > maxLines;
+	let head = tooManyLines ? lines.slice(0, headLines).join("\n") : text.slice(0, headChars);
+	let tail = tooManyLines ? (tailLines > 0 ? lines.slice(-tailLines).join("\n") : "") : text.slice(-tailChars);
+	// Very long lines: cut the head at its end and the tail at its start, so the outer edges stay.
+	const clipped = head.length > headChars || tail.length > tailChars || !tooManyLines;
+	if (head.length > headChars) head = head.slice(0, headChars);
+	if (tail.length > tailChars) tail = tail.slice(-tailChars);
+	const marker = clipped ? "…(output shortened here)…" : `…(${lines.length - maxLines} lines omitted)…`;
+	return [head, marker, tail].filter((part) => part !== "").join("\n");
 }

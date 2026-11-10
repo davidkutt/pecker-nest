@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { GATE_CONFIG_PATH, type GateConfig, isDocsOnly, loadGateConfig, outputTail } from "./lib/gate-config.ts";
+import { GATE_CONFIG_PATH, type GateConfig, isDocsOnly, loadGateConfig, outputExcerpt } from "./lib/gate-config.ts";
 import { changedPaths, snapshotKey, takeSnapshot, type WorktreeSnapshot } from "./lib/worktree.ts";
 
 const CUSTOM_TYPE = "quality-gate";
@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
 
 		lastFailedKey = key;
 		const failure = describeFailure(config, result);
-		const output = outputTail(result.output) || "(no output)";
+		const output = outputExcerpt(result.output) || "(no output)";
 
 		// Exit code 127: the check command itself is missing. The agent cannot fix that.
 		const environmentProblem = result.code === 127;
@@ -206,7 +206,7 @@ export default function (pi: ExtensionAPI) {
 			pi.sendMessage({
 				customType: CUSTOM_TYPE,
 				display: true,
-				content: [`[quality-gate] ${headline}`, "", "```", outputTail(result.output) || "(no output)", "```"].join("\n"),
+				content: [`[quality-gate] ${headline}`, "", "```", outputExcerpt(result.output) || "(no output)", "```"].join("\n"),
 			});
 		},
 	});
