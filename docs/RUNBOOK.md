@@ -336,7 +336,10 @@ Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` 
 cd ~/dev/pecker-nest
 npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung gegen dein installiertes Pi
 scripts/build-image.sh && npm run e2e:docker
+scripts/doctor.sh                          # Werkzeuge, Links, Login, Modelle, Container-Key, Image
 ```
+
+`scripts/doctor.sh` gibt je Prüfung eine Zeile aus, die mit `PASS`, `WARN` oder `FAIL` beginnt; `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Bei einem `FAIL` ist der Exit-Code 1. Es prüft unter anderem, ob `pi --version` zur Version in `package.json` passt (älter: `FAIL`; neuer: `WARN`, dann zuerst `npm run e2e`), und ob das Image vom aktuellen Commit stammt. Mit `--repo <pfad>` prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Es ändert nichts, gibt keine Schlüssel aus und kostet keine Tokens.
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
 

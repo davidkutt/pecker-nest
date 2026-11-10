@@ -132,7 +132,15 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    - Fehlt eines davon, lässt dein ZDR-Filter es nicht zu. Siehe „Häufige Probleme“ unten.
    - In der Shell zeigt `pi list` zwei Packages: `~/dev/pecker-nest` und `npm:pi-subagents@0.87.0`.
 
-5. Kurzer Rauchtest mit echtem Modell (kostet weniger als einen Cent):
+5. Alles auf einmal prüfen:
+
+   ```bash
+   ~/dev/pecker-nest/scripts/doctor.sh
+   ```
+
+   Jede Zeile beginnt mit `PASS`, `WARN` oder `FAIL`, und `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Jetzt sind noch zwei `FAIL` zu erwarten: der Schlüsselbund-Eintrag und das Image kommen erst in Schritt 6.
+
+6. Kurzer Rauchtest mit echtem Modell (kostet weniger als einen Cent):
 
    ```bash
    cd /tmp && pi -p "Antworte nur mit OK"
@@ -195,6 +203,8 @@ Erster echter Headless-Lauf:
 ```
 
 `pi-run.sh` sucht den Key in dieser Reihenfolge: `PI_RUN_OPENROUTER_API_KEY` (für einen einzelnen Lauf oder unter Linux), dann der Schlüsselbund-Eintrag `pecker-nest-container-key`. Deinen interaktiven `OPENROUTER_API_KEY` nimmt es nie von selbst: Der Container läuft mit `--approve`, und dieser Key hat kein Limit. Ohne Container-Key bricht das Skript mit Exit-Code 64 ab und nennt den Schlüsselbund-Befehl. Nur mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1` gibt es den interaktiven Key weiter, mit Warnung.
+
+Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh`, ob Key und Image bereit sind; jetzt sollte keine Zeile mehr mit `FAIL` beginnen.
 
 `pi-run.sh` gibt am Ende `result: ok`, die Exit-Codes von Setup, Modellliste und Gate und die geänderten Dateien aus. Die Logs liegen unter `~/dev/pecker-nest/runs/` (`<id>.jsonl` und `<id>.stderr.log`). Im Container gibt es keine Knowledge Base; das ist so entschieden.
 
