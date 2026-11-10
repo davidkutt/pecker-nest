@@ -28,7 +28,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── prompts/                  /plan, /implement <step>, /review
 ├── agent/                    linked into ~/.pi/agent by scripts/link.sh
 │   ├── settings.json         models, tools, compaction, packages (pinned pi-subagents), subagent defaults
-│   ├── models.json           OpenRouter provider routing: ZDR only, no data collection
+│   ├── models.json           OpenRouter provider routing: ZDR only, no data collection; Kimi K3.1 Pro
+│   │                         gets reasoning_content on replayed assistant messages
 │   ├── APPEND_SYSTEM.md      global working principles
 │   ├── mcp.json              MCP servers (knowledge base goes here)
 │   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)

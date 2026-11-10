@@ -66,7 +66,7 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | --- | --- | --- |
 | `README.md` | Überblick und Verzeichnisstruktur | – |
 | `agent/settings.json` | Modelle, Tools, Kompaktierung, Packages, Subagent-Standards | Standardmodell, gepinnte Version von pi-subagents |
-| `agent/models.json` | OpenRouter-Routing: `zdr`, `data_collection: deny`, `require_parameters` | Stimmt das mit deiner Datenschutz-Entscheidung überein? |
+| `agent/models.json` | OpenRouter-Routing: `zdr`, `data_collection: deny`, `require_parameters`; dazu ein `modelOverrides`-Eintrag, damit Kimi K3.1 Pro ein Gespräch übernehmen kann, das Flash begonnen hat | Stimmt das mit deiner Datenschutz-Entscheidung überein? |
 | `agent/APPEND_SYSTEM.md` | Globale Arbeitsregeln für das Modell | Passen sie zu deiner Arbeitsweise? |
 | `extensions/safety-gate.ts`, `extensions/lib/safety-rules.ts`, `extensions/lib/protect-config.ts` | Blockiert `rm -rf`, `git push`, `git reset --hard`, `curl … \| sh`, Schreiben auf `.env`, Secrets, `.pi/` und die Harness selbst; wendet `.pi/protect.json` je Repo an | Fehlt dir etwas, oder ist etwas zu streng? |
 | `extensions/quality-gate.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden | Läuft nur in Repos, denen du vertraust (`/trust`) |

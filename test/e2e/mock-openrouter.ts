@@ -14,12 +14,15 @@ export interface ToolUse {
 	name: string;
 	input: Record<string, unknown>;
 }
-export type Reply = { text?: string; tools?: ToolUse[] };
+/** `reasoning` is streamed before the answer in OpenRouter's `reasoning` delta field. */
+export type Reply = { text?: string; tools?: ToolUse[]; reasoning?: string };
 
 export interface ChatMessage {
 	role: string;
 	content?: unknown;
 	tool_calls?: { function?: { name?: string } }[];
+	/** Replayed reasoning. Some providers reject an assistant message without this field. */
+	reasoning_content?: unknown;
 }
 
 export interface MockRequest {
@@ -75,6 +78,7 @@ function sse(reply: Reply, model: string): string {
 	const chunk = (delta: unknown, finish: string | null = null, usage?: unknown) =>
 		`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 0, model, choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
 	let out = chunk({ role: "assistant", content: "" });
+	if (reply.reasoning) out += chunk({ reasoning: reply.reasoning });
 	if (reply.text) out += chunk({ content: reply.text });
 	(reply.tools ?? []).forEach((tool, index) => {
 		out += chunk({

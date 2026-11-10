@@ -79,6 +79,9 @@ function respond(request: MockRequest): Reply {
 		case "strong-loop":
 			// The same failing command three times, then whatever the escalated model says.
 			return step < 3 ? tool("bash", { command: "npm run missing-script" }) : say("stopped looping");
+		case "kimi-replay":
+			// Flash thinks and calls a tool three times; the escalated model then gets that history.
+			return step < 3 ? { ...tool("bash", { command: "npm run missing-script" }), reasoning: `flash thought ${step}` } : say("took over");
 		case "strong-back":
 			return say("back on glm");
 		case "strong-missing":
@@ -482,6 +485,28 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.deepEqual(stats.escalations, { plan: 1, loop: 1 });
 			assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
 			assert.ok(stats.models[KIMI].requests > 0, "Kimi appears in the model table");
+		},
+	],
+	[
+		"Kimi K3.1 Pro accepts a tool loop that Flash started: every replayed assistant message carries reasoning_content",
+		async () => {
+			const repo = makeRepo("kimi-replay", {}, false);
+			const run = await runPi(repo, ["-p", "/strong kimi", "[scenario:kimi-replay] run the script"]);
+			assert.equal(run.code, 0, run.stderr);
+			const requests = requestsFor("kimi-replay");
+			assert.deepEqual(requests.map((request) => request.model), [FLASH, FLASH, FLASH, KIMI], "Flash loops, Kimi takes over mid-run");
+			const assistants = (request: MockRequest) => request.messages.filter((message) => message.role === "assistant");
+			// Flash gets its own thinking back; Pi drops it when another model takes over.
+			assert.ok(JSON.stringify(assistants(requests[2])).includes("flash thought 0"), "Flash replays its own reasoning");
+			const kimi = requests[3];
+			const replayed = assistants(kimi);
+			assert.equal(replayed.length, 3, "Kimi gets Flash's three tool-call turns");
+			assert.ok(replayed.every((message) => message.tool_calls?.length), "each replayed turn is a tool call");
+			assert.ok(!JSON.stringify(replayed).includes("flash thought"), "Flash's thinking is not passed on to Kimi");
+			// Moonshot rejects a tool-call message without reasoning_content (HTTP 400). The
+			// modelOverrides entry in agent/models.json makes Pi send the field, empty.
+			for (const message of replayed) assert.ok("reasoning_content" in message, "a replayed assistant message has no reasoning_content field");
+			assert.deepEqual(kimi.routing, ROUTING, "the override's compat merges with the provider-level routing");
 		},
 	],
 	[
