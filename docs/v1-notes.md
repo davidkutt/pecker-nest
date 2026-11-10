@@ -19,7 +19,7 @@ Entschieden im Planungschat am 08.11.: Kimi K3.1 Pro kommt als **optionales** Er
 **Kimi K3.1 Pro** (`moonshotai/kimi-k3.1-pro`): im Katalog von Pi 1.5.0 vorhanden, Text und Bilder, Denkstufen `off`, `low`, `high`, `max`, 1M Kontext. Preis bei OpenRouter etwa 2 / 10 / 0,20 USD je Million Tokens (Input / Output / Cache-Read); GLM 5.3 liegt bei etwa 1,40 / 4,40 / 0,26. Kimi kostet also beim Input knapp das 1,5-Fache, beim Output gut das Doppelte, beim Cache-Read etwas weniger. Der Vergleich muss deshalb zeigen, dass die Antworten besser sind, nicht nur anders.
 
 **Wie `/strong` sich verhält:**
-- Es entscheidet, welches Modell der Router für `/plan` (`max`), für Eskalationen und für `/hard` (`high`) holt. Flash bleibt in jedem Fall das Arbeitsmodell.
+- Es entscheidet, welches Modell der Router für `/plan`, für Eskalationen und für `/hard` holt (seit 10.11. alles auf `max`, vorher Eskalationen und `/hard` auf `high`). Flash bleibt in jedem Fall das Arbeitsmodell.
 - Wie `/hard` schaltet es nur um und sendet keine Nachricht; den Prompt tippst du danach. (Eine von einer Extension gesendete Nachricht würde den `/plan`-Modus des Safety-Gates erben, siehe Befund vom 07.11.)
 - Die Wahl steht im Router-State, nicht in einer Variablen im Prozess: sie folgt `/tree` und Forks und übersteht Neustarts und Kompaktierung.
 - Alte Sessions bleiben lesbar. Vor `/strong` hieß die starke Stufe im State `tier: "glm"`; `readState()` liest das als die starke Stufe mit GLM. Der Session-Report zählt solche Wechsel weiter als GLM.
@@ -29,10 +29,10 @@ Entschieden im Planungschat am 08.11.: Kimi K3.1 Pro kommt als **optionales** Er
 **Der Reviewer bleibt auf GLM.** Für den Vergleich im Review brauchst du keinen Rollenwechsel, sondern den Override für genau einen Lauf (pi-subagents, `docs/models.md`):
 
 ```text
-/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:high] "<Aufgabe>"
+/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:max] "<Aufgabe>"
 ```
 
-Das ist in einem E2E-Szenario geprüft (RPC-Modus wie in der TUI): Der Reviewer läuft dann auf Kimi mit `high`, behält seine Routing-Vorgaben und bekommt weiterhin keine Schreib-Tools. `agent/agents/reviewer.md` bleibt unverändert auf GLM, der Override gilt nur für diesen Lauf.
+Das ist in einem E2E-Szenario geprüft (RPC-Modus wie in der TUI): Der Reviewer läuft dann auf Kimi mit `max` (seit 10.11., wie die Rolle selbst; vorher `high`), behält seine Routing-Vorgaben und bekommt weiterhin keine Schreib-Tools. `agent/agents/reviewer.md` bleibt unverändert auf GLM, der Override gilt nur für diesen Lauf.
 
 **DeepSeek V4.1 Pro:** weiter beobachten, es gibt kein Erscheinungsdatum. Sobald es da ist, mit Flash und dem starken Modell vergleichen; bis dahin ändert sich nichts.
 
@@ -69,8 +69,8 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | Pi / pi-subagents | 1.4.0 / 0.83.1 | 1.5.0 / 0.87.0 (Prüfung unten) |
 | Flash-Modell | `deepseek/deepseek-v4-flash-0731` | `deepseek/deepseek-v4.1-flash-1017` |
 | Standardmodell | `openrouter/z-ai/glm-5.3` (`high`) | `router/escalate` |
-| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. (Seit 08.11. ist das starke Modell mit `/strong` wählbar; mit Kimi eskaliert auch ein Gespräch mit Bildern.) |
-| Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` |
+| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. (Seit 08.11. ist das starke Modell mit `/strong` wählbar; mit Kimi eskaliert auch ein Gespräch mit Bildern. Seit 10.11. läuft das starke Modell immer auf `max`.) |
+| Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` (seit 10.11. `max`) |
 | Builtins | `oracle`, `delegate` auf GLM | `delegate` auf Flash (`subagents.defaultModel`), `oracle` auf GLM |
 | Kompaktierung | bei ~1M Kontext (Standard `reserveTokens` 16k) | bei ~250k: `compaction.modelOverrides` mit `reserveTokens: 800000` für Router, Flash und GLM. Andere Modelle behalten den Standard. |
 | Safety Gate | feste Regeln | zusätzlich: `.pi/` ist für den Agenten tabu, ebenso dieses Repo und Pis Agent-Verzeichnis (seit 08.11. auch Claude Codes Konfigurationsverzeichnis); `.pi/protect.json` je Repo (Pfade nicht schreiben, Pfade nicht lesen, Befehle nicht ausführen; Zeilen mit geschützten Pfaden werden aus grep-, find-, ls- und bash-Ausgaben entfernt). Eine kaputte `protect.json` sperrt alle Schreibzugriffe und Befehle. |
@@ -127,8 +127,8 @@ Stand 08.11. (alle drei 1M Kontext; Preise in USD je Million Tokens, Input / Out
 | Modell | ID | Preis (OpenRouter) | Denkstufen | Bilder | Rolle |
 | --- | --- | --- | --- | --- | --- |
 | DeepSeek V4.1 Flash (Stand 17.10.) | `deepseek/deepseek-v4.1-flash-1017` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
-| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`) als Standard, `planner` (`max`), `reviewer` (`high`), `oracle` |
-| Kimi K3.1 Pro (optional, seit 08.11.) | `moonshotai/kimi-k3.1-pro` | ca. 2 / 10 / 0,20 | `off`, `low`, `high`, `max` | ja | Router nach `/strong kimi`, im Review per Lauf-Override; sonst nicht belegt |
+| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`; immer `max`) als Standard, `planner` (`max`), `reviewer` (`max`), `oracle` |
+| Kimi K3.1 Pro (optional, seit 08.11.) | `moonshotai/kimi-k3.1-pro` | ca. 2 / 10 / 0,20 | `off`, `low`, `high`, `max` | ja | Router nach `/strong kimi` (`max`), im Review per Lauf-Override; sonst nicht belegt |
 
 Noch zu beobachten: DeepSeek V4.1 Pro, sobald es erscheint (kein Erscheinungsdatum). Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
 

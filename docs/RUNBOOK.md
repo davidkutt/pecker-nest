@@ -175,7 +175,7 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-
    /prompt-workflow review-chain <Aufgabe, z. B. "Füge X hinzu">
    ```
 
-   Die Kette läuft `scout` (DeepSeek V4.1 Flash, `low`) → `planner` (GLM 5.3, `max`) → `worker` (DeepSeek V4.1 Flash, `high`) → `reviewer` (GLM 5.3, `high`). Prüfe:
+   Die Kette läuft `scout` (DeepSeek V4.1 Flash, `low`) → `planner` (GLM 5.3, `max`) → `worker` (DeepSeek V4.1 Flash, `high`) → `reviewer` (GLM 5.3, `max`). Prüfe:
 
    - Jeder Agent auf seinem Modell: `/subagents-fleet` öffnen, den Transcript des Laufs ansehen oder den Session-Report (Abschnitt „By agent“).
    - Der GLM-Reviewer findet Fehler im Flash-Code und ändert keinen Code. Er hat keine Schreib-Tools, nicht einmal `bash`.
@@ -192,11 +192,13 @@ Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-
 | --- | --- |
 | Jeder Prompt, den du tippst | DeepSeek V4.1 Flash, `high` |
 | `/plan …` samt seinen Tool-Aufrufen | GLM 5.3, `max` |
-| Quality Gate in Reparaturrunde 2 noch rot | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
-| Dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei oder fünf fehlgeschlagene Tool-Aufrufe in Folge | GLM 5.3, `high`, bis zu deinem nächsten Prompt |
-| `/hard` | das starke Modell, `high`, für alle Prompts bis `/flash` |
+| Quality Gate in Reparaturrunde 2 noch rot | GLM 5.3, `max`, bis zu deinem nächsten Prompt |
+| Dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei oder fünf fehlgeschlagene Tool-Aufrufe in Folge | GLM 5.3, `max`, bis zu deinem nächsten Prompt |
+| `/hard` | das starke Modell, `max`, für alle Prompts bis `/flash` |
 | Bilder im Gespräch, und das starke Modell liest keine Bilder | immer Flash (GLM 5.3 liest keine Bilder, Kimi K3.1 Pro schon) |
 | Das starke Modell fehlt in deiner Modellliste | GLM 5.3, sonst Flash, mit einem Hinweis |
+
+Das starke Modell läuft seit dem 10.11. immer auf `max`, Flash bleibt auf `high`. Eine Eskalation heißt, dass Flash schon hängt; dort am Nachdenken zu sparen wäre die falsche Stelle (Begründung in [v1-notes.md](v1-notes.md#update-10112026-setup-härtung-und-modell-passung)).
 
 „Das starke Modell“ ist GLM 5.3, bis du mit `/strong kimi` auf Kimi K3.1 Pro umschaltest:
 
@@ -238,10 +240,10 @@ Dann `PLAN.glm.md` und `PLAN.md` vergleichen: Findet der Plan die echte Einschr�
 
 ```text
 /run reviewer "<Aufgabe: prüfe den Diff gegen AGENTS.md und die Tests>"
-/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:high] "<dieselbe Aufgabe>"
+/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:max] "<dieselbe Aufgabe>"
 ```
 
-Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `high`), der zweite überschreibt das Modell nur für diesen Lauf; `agent/agents/reviewer.md` bleibt unverändert. Verglichen wird, wer die echten Fehler findet und wer Fehlalarme produziert, nicht wer mehr schreibt.
+Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite überschreibt das Modell nur für diesen Lauf; `agent/agents/reviewer.md` bleibt unverändert. Verglichen wird, wer die echten Fehler findet und wer Fehlalarme produziert, nicht wer mehr schreibt.
 
 **Kosten:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd "$PWD"` zeigt sie je Modell, der Abschnitt „Router“ zählt die Wechsel je starkem Modell. Kimi kostet beim Output gut das Doppelte von GLM; der Vergleich muss also einen klaren Vorteil zeigen, nicht nur einen Unterschied.
 

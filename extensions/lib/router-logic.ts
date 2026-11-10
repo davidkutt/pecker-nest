@@ -61,9 +61,13 @@ export function readState(state: unknown): RouterState | undefined {
 	};
 }
 
-/** The strong model plans at max; everything else runs at high. */
-export function levelFor(why: Why): Level {
-	return why === "plan" ? "max" : "high";
+/**
+ * The strong tier always runs at max: Z.ai and Moonshot both publish their coding results at
+ * max, and an escalation means Flash is already stuck. Flash runs at high, except for a /plan
+ * that has to stay on Flash (the strong model cannot take the conversation), which keeps max.
+ */
+export function levelFor(tier: Tier, why: Why): Level {
+	return tier === "strong" || why === "plan" ? "max" : "high";
 }
 
 /** Changes to these files do not count as code: writing PLAN.md is still planning. */
@@ -259,7 +263,7 @@ export function decide(input: RouteInput): RouteDecision {
 	const strong = input.strongFallback ?? selected;
 	const effective = (candidate: RouterState): Tier => (candidate.tier === "strong" && !input.strongUsable ? "flash" : candidate.tier);
 	const tier = effective(state);
-	const level = levelFor(state.why);
+	const level = levelFor(tier, state.why);
 	const reason = `${state.why}${detail ? `: ${detail}` : ""}`;
 	let notice: string | undefined;
 	if (tier !== effective(current)) {

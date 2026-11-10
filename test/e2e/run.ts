@@ -260,7 +260,7 @@ function assertChain(scenario: string) {
 	}
 	assert.deepEqual([...byRole.keys()], ["scout", "planner", "worker", "reviewer"]);
 	const assigned = [...byRole.values()].map((request) => `${request.model}:${request.effort}`);
-	assert.deepEqual(assigned, [`${FLASH}:low`, `${GLM}:max`, `${FLASH}:high`, `${GLM}:high`]);
+	assert.deepEqual(assigned, [`${FLASH}:low`, `${GLM}:max`, `${FLASH}:high`, `${GLM}:max`]);
 	for (const request of byRole.values()) assert.deepEqual(request.routing, ROUTING, "subagents use the same provider routing");
 	const reviewerTools = byRole.get("reviewer")!.toolNames;
 	for (const writer of ["edit", "write", "bash"]) assert.ok(!reviewerTools.includes(writer), `reviewer has ${writer}`);
@@ -406,8 +406,8 @@ const scenarios: [string, () => Promise<void>][] = [
 			const round2 = requests.findIndex((request) => request.lastUserText.includes("Repair round 2 of 2"));
 			assert.ok(round2 > 0, "the gate reached repair round 2");
 			assert.ok(requests.slice(0, round2).every((request) => request.model === FLASH), "Flash until round 2");
-			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "high"), "GLM high from round 2");
-			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(gate: quality gate still red at repair round 2\)/);
+			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "max"), "GLM max from round 2");
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(gate: quality gate still red at repair round 2\)/);
 			// The session report reads the same session back.
 			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
 				encoding: "utf-8",
@@ -428,9 +428,9 @@ const scenarios: [string, () => Promise<void>][] = [
 			const repo = makeRepo("router-loop", {}, false);
 			const run = await runPi(repo, ["-p", "[scenario:router-loop] run the script"]);
 			assert.equal(run.code, 0, run.stderr);
-			const models = requestsFor("router-loop").map((request) => request.model);
-			assert.deepEqual(models, [FLASH, FLASH, FLASH, GLM]);
-			assert.match(run.stderr, /\[router\] GLM 5\.3 at high \(loop: the same bash call 3 times in a row\)/);
+			const routed = requestsFor("router-loop").map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed, [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${GLM}:max`]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(loop: the same bash call 3 times in a row\)/);
 		},
 	],
 	[
@@ -439,8 +439,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			const repo = makeRepo("router-hard", {}, false);
 			const run = await runPi(repo, ["-p", "/hard", "[scenario:router-hard] one", "[scenario:router-hard] two", "/flash", "[scenario:router-soft] three"]);
 			assert.equal(run.code, 0, run.stderr);
-			assert.deepEqual(requestsFor("router-hard").map((request) => request.model), [GLM, GLM]);
-			assert.deepEqual(requestsFor("router-soft").map((request) => request.model), [FLASH]);
+			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
+			assert.deepEqual(routed("router-hard"), [`${GLM}:max`, `${GLM}:max`]);
+			assert.deepEqual(routed("router-soft"), [`${FLASH}:high`]);
+			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(hard\)/);
 		},
 	],
 	[
@@ -461,10 +463,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.equal(run.code, 0, run.stderr);
 			const routed = (scenario: string) => requestsFor(scenario).map((request) => `${request.model}:${request.effort}`);
 			assert.deepEqual(routed("strong-plan"), [`${KIMI}:max`, `${KIMI}:max`], "/plan runs on Kimi at max, including its tool calls");
-			assert.deepEqual(routed("strong-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:high`], "a loop escalates to Kimi, not GLM");
+			assert.deepEqual(routed("strong-loop"), [`${FLASH}:high`, `${FLASH}:high`, `${FLASH}:high`, `${KIMI}:max`], "a loop escalates to Kimi, not GLM");
 			assert.deepEqual(routed("strong-back"), [`${FLASH}:high`], "/strong glm alone does not escalate");
 			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at max \(plan\)/);
-			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at high \(loop: the same bash call 3 times in a row\)/);
+			assert.match(run.stderr, /\[router\] Kimi K3\.1 Pro at max \(loop: the same bash call 3 times in a row\)/);
 			assert.ok(!requestsFor("strong-plan").some((request) => request.model === GLM), "GLM is not called while kimi is selected");
 			assert.ok(!requestsFor("strong-loop").some((request) => request.model === GLM));
 			for (const request of requestsFor("strong-plan")) assert.deepEqual(request.routing, ROUTING, "Kimi gets the same provider routing");
@@ -508,14 +510,14 @@ const scenarios: [string, () => Promise<void>][] = [
 		async () => {
 			const repo = makeRepo("reviewer-kimi", { "src/a.ts": "export const a = 1;\n" }, false);
 			// /run needs a live session, like /prompt-workflow, so this runs over RPC like the TUI.
-			await runPiRpc(repo, `/run reviewer[model=openrouter/${KIMI}:high] [scenario:reviewer-kimi] review the diff`, () =>
+			await runPiRpc(repo, `/run reviewer[model=openrouter/${KIMI}:max] [scenario:reviewer-kimi] review the diff`, () =>
 				requestsFor("reviewer-kimi").some((request) => agentRole(request) === "reviewer"),
 			);
 			const reviewer = requestsFor("reviewer-kimi").filter((request) => agentRole(request) === "reviewer");
 			assert.ok(reviewer.length >= 1, "the reviewer ran");
 			assert.ok(
-				reviewer.every((request) => request.model === KIMI && request.effort === "high"),
-				`the per-run override puts the reviewer on Kimi at high, got ${reviewer.map((r) => `${r.model}:${r.effort}`).join(", ")}`,
+				reviewer.every((request) => request.model === KIMI && request.effort === "max"),
+				`the per-run override puts the reviewer on Kimi at max, got ${reviewer.map((r) => `${r.model}:${r.effort}`).join(", ")}`,
 			);
 			for (const request of reviewer) assert.deepEqual(request.routing, ROUTING);
 			const reviewerTools = reviewer[0].toolNames;

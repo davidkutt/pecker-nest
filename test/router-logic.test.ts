@@ -38,9 +38,12 @@ function input(overrides: Partial<RouteInput>): RouteInput {
 }
 
 describe("levelFor", () => {
-	it("plans at max and does everything else at high", () => {
-		assert.equal(levelFor("plan"), "max");
-		for (const why of ["default", "hard", "gate", "loop", "stuck"] as const) assert.equal(levelFor(why), "high");
+	it("runs the strong tier at max for every reason", () => {
+		for (const why of ["plan", "gate", "loop", "stuck", "hard"] as const) assert.equal(levelFor("strong", why), "max", why);
+	});
+	it("keeps Flash at high, except for a plan that has to stay on Flash", () => {
+		for (const why of ["default", "hard", "gate", "loop", "stuck"] as const) assert.equal(levelFor("flash", why), "high", why);
+		assert.equal(levelFor("flash", "plan"), "max");
 	});
 });
 
@@ -136,18 +139,28 @@ describe("decide", () => {
 		assert.equal(decide(input({ messages: [user(), gate(1)] })).tier, "flash");
 		const result = decide(input({ messages: [user(), gate(1), gate(2)] }));
 		assert.equal(result.tier, "strong");
-		assert.equal(result.level, "high");
+		assert.equal(result.level, "max");
 		assert.equal(result.state.why, "gate");
-		assert.match(result.notice ?? "", /repair round 2/);
+		assert.match(result.notice ?? "", /GLM 5\.3 at max \(gate: quality gate still red at repair round 2\)/);
 	});
 	it("escalates on a loop and stays escalated for the rest of the run", () => {
 		const loop = [user(), ...call("bash", { command: "a" }), ...call("bash", { command: "a" }), ...call("bash", { command: "a" })];
 		const first = decide(input({ messages: loop }));
 		assert.equal(first.tier, "strong");
+		assert.equal(first.level, "max");
 		assert.equal(first.state.why, "loop");
 		const later = decide(input({ state: first.state, messages: [...loop, ...call("read", { path: "b.ts" })] }));
 		assert.equal(later.tier, "strong");
+		assert.equal(later.level, "max");
 		assert.equal(later.state, first.state);
+	});
+	it("escalates at max when the agent is stuck on failed edits", () => {
+		const messages = [user()];
+		for (let i = 0; i < 3; i++) messages.push(...call("edit", { path: "a.ts", edits: [i] }, true));
+		const result = decide(input({ messages }));
+		assert.equal(result.state.why, "stuck");
+		assert.equal(result.level, "max");
+		assert.match(result.notice ?? "", /GLM 5\.3 at max \(stuck: 3 failed edits on a\.ts\)/);
 	});
 	it("keeps the tier for steering and follow-up messages", () => {
 		const escalated: RouterState = { tier: "strong", why: "loop" };
@@ -156,8 +169,11 @@ describe("decide", () => {
 	it("/hard keeps the strong model on across prompts until /flash", () => {
 		const hard = decide(input({ reason: "user", hard: true }));
 		assert.deepEqual(hard.state, { tier: "strong", why: "hard", sticky: true });
+		assert.equal(hard.level, "max");
+		assert.match(hard.notice ?? "", /GLM 5\.3 at max \(hard\)/);
 		const again = decide(input({ reason: "user", state: hard.state }));
 		assert.equal(again.tier, "strong");
+		assert.equal(again.level, "max");
 		const plan = decide(input({ reason: "user", state: hard.state, planRequested: true }));
 		assert.deepEqual(plan.state, { tier: "strong", why: "plan", sticky: true });
 		const afterPlan = decide(input({ reason: "user", state: plan.state }));
@@ -170,6 +186,7 @@ describe("decide", () => {
 		const result = decide(input({ messages: loop, strongUsable: false }));
 		assert.equal(result.tier, "flash");
 		assert.equal(result.state.tier, "strong", "the session still records that it wanted the strong model");
+		assert.equal(result.level, "high", "Flash stays at high when it has to take an escalation itself");
 		assert.match(result.notice ?? "", /staying on DeepSeek V4\.1 Flash/);
 		const later = decide(input({ state: result.state, messages: loop, strongUsable: false }));
 		assert.equal(later.notice, undefined);
@@ -233,7 +250,8 @@ describe("decide with /strong kimi", () => {
 		assert.equal(escalated.tier, "strong");
 		assert.equal(escalated.strong, "kimi");
 		assert.equal(escalated.state.strong, "kimi");
-		assert.match(escalated.notice ?? "", /Kimi K3\.1 Pro at high \(loop:/);
+		assert.equal(escalated.level, "max");
+		assert.match(escalated.notice ?? "", /Kimi K3\.1 Pro at max \(loop:/);
 	});
 	it("/strong glm goes back and drops the marker from the state", () => {
 		const kimi: RouterState = { tier: "flash", why: "default", strong: "kimi" };

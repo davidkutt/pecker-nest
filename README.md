@@ -18,9 +18,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   │                         the harness itself (this repo, Pi's and Claude Code's config dirs);
 │   │                         applies .pi/protect.json; /plan writes only PLAN.md
 │   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command
-│   ├── router.ts             virtual model router/escalate: Flash by default, the strong model for
-│   │                         /plan, a red gate at repair round 2, loops, or /hard (until /flash);
-│   │                         /strong glm|kimi picks it
+│   ├── router.ts             virtual model router/escalate: Flash (high) by default, the strong model
+│   │                         (always max) for /plan, a red gate at repair round 2, loops, or /hard
+│   │                         (until /flash); /strong glm|kimi picks it
 │   ├── checkpoint.ts         git checkpoint before every prompt; /rewind, /checkpoints
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested
@@ -31,7 +31,7 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── models.json           OpenRouter provider routing: ZDR only, no data collection
 │   ├── APPEND_SYSTEM.md      global working principles
 │   ├── mcp.json              MCP servers (knowledge base goes here)
-│   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3)
+│   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)
 │   └── prompts/              review-chain and its four steps
 ├── claude/skills/            Claude Code: /nest-supervise, /nest-handoff (linked by scripts/link.sh --claude)
 ├── field-notes/              local session notes (git-ignored except README and TEMPLATE)

@@ -3,10 +3,12 @@
  * model when the work needs it (strategy A: Flash builds, the strong model steps in).
  *
  * - Every prompt you type starts on Flash at high.
- * - /plan runs on the strong model at max.
- * - Within a run, the strong model at high takes over when the quality gate is still red at
- *   repair round 2, when the agent repeats the same tool call three times, fails three edits on
- *   one file, or fails five tool calls in a row. It stays there until your next prompt.
+ * - The strong model always runs at max: an escalation means Flash is already stuck, and both
+ *   vendors publish their coding results at max.
+ * - /plan runs on the strong model.
+ * - Within a run, the strong model takes over when the quality gate is still red at repair
+ *   round 2, when the agent repeats the same tool call three times, fails three edits on one
+ *   file, or fails five tool calls in a row. It stays there until your next prompt.
  * - /hard keeps the strong model on for every prompt until /flash.
  * - /strong glm|kimi picks the strong model: GLM 5.3 (default) or Kimi K3.1 Pro. Without an
  *   argument it shows the current choice. Like /hard it only switches and sends no message.
@@ -78,7 +80,7 @@ export default function (pi: ExtensionAPI) {
 	const selected = (ctx: ExtensionContext) => ctx.model?.provider === ROUTER_PROVIDER && ctx.model?.id === ROUTER_ID;
 
 	pi.registerCommand("hard", {
-		description: "Run every prompt on the strong model (high) until /flash",
+		description: "Run every prompt on the strong model (max) until /flash",
 		handler: async (_args, ctx) => {
 			hard = true;
 			ctx.ui.notify(
