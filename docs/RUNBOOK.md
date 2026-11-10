@@ -324,6 +324,27 @@ Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` 
 - **Test 12, Provider-Routing:** Nach ein paar Anfragen in OpenRouter unter Activity die Provider der Anfragen ansehen. Erwartung: nur ZDR-Provider. Dass Pi die Vorgaben schickt (`provider: { zdr: true, data_collection: "deny", require_parameters: true }` in jeder Anfrage, auch in Subagents und im Container), ist getestet. Was OpenRouter daraus macht, siehst nur du im Activity-Log.
 - **Test 13, Caching:** In einer Session mit ein paar Turns `/session` öffnen. Erwartung: ab dem zweiten Turn Cache-Reads. Pi schickt dafür pro Session eine feste `x-session-id`, damit OpenRouter beim selben Provider bleibt (getestet). Caching selbst ist bei DeepSeek und Z.ai automatisch.
 
+## Live-Probe gegen OpenRouter (👤 5 Minuten, ein paar Cent)
+
+Die Tests des Repos laufen gegen einen Mock. Was die echten Modelle und OpenRouter mit den Anfragen machen, klärt ein Skript, das du selbst startest:
+
+```bash
+node ~/dev/pecker-nest/scripts/probe-openrouter.ts
+```
+
+Es nimmt den Key aus `PROBE_OPENROUTER_API_KEY`, sonst den Schlüsselbund-Eintrag `pecker-nest-container-key` (derselbe wie für `pi-run.sh`). Einen exportierten `OPENROUTER_API_KEY` nimmt es nie von selbst. Die Anfragen gehen durch Pis eigenen Client mit `agent/models.json`: Routing-Vorgaben, Denkstufe (Flash `high`, starkes Modell `max`) und Session-Header sind also die, die Pi schickt. Ein voller Lauf sind etwa 20 kleine Anfragen mit höchstens 1024 Output-Tokens (`PROBE_MAX_TOKENS`); der Bericht nennt die Kosten, die OpenRouter meldet. Er steht auf der Konsole und in `runs/probe-<zeitstempel>.md`.
+
+| Abschnitt | Frage |
+| --- | --- |
+| 1. Endpoints | Welche Provider listet OpenRouter je Modell (Quantisierung, Tools, Reasoning, Preis), und welche bleiben unter den Routing-Vorgaben übrig? |
+| 2. Tool loop | Drei Turns mit einem Tool je Modell: Welcher Provider hat bedient, kam Reasoning zurück und in welchem Feld, wie viele Cache- und Reasoning-Tokens je Turn, Fehler im Wortlaut. Das deckt Test 12 und 13 mit ab. |
+| 3. Cross-model replay | Kimi und GLM übernehmen einen Tool-Aufruf von Flash, einmal mit leerem `reasoning_content` und einmal ohne. Bestätigt oder widerlegt den `modelOverrides`-Eintrag für Kimi und zeigt, ob GLM ihn auch braucht. |
+| 4. GLM preserved thinking | Dieselbe Schleife mit und ohne Z.ais `clear_thinking: false`. Nur ein Bericht; `agent/models.json` bleibt unverändert. |
+
+Einzelne Abschnitte: `node scripts/probe-openrouter.ts --only endpoints,replay`. Ein weiteres Feld im Abschnitt 4 ausprobieren, ohne das Skript zu ändern: `PROBE_EXTRA_BODY` mit einem JSON-Objekt setzen, das in den Request-Body gemischt wird (bash/zsh: `PROBE_EXTRA_BODY='{…}' node …`; fish: `env PROBE_EXTRA_BODY='{…}' node …`).
+
+Den Bericht gibst du dem Planungschat. Was daraus folgt (Provider festlegen, Flag für GLM, Preserved Thinking), entscheidest du danach; das Skript ändert nichts.
+
 ## Wenn Anfragen scheitern
 
 - **„No endpoints found …“:** `zdr: true` plus `require_parameters: true` lässt für ein Modell keinen Provider übrig. Trifft es das starke Modell, macht der Router von selbst auf GLM 5.3 weiter, sonst auf Flash, und meldet es einmal (`router: Kimi K3.1 Pro failed, no endpoint under the routing rules (…); using GLM 5.3 instead …`). Trifft es Flash, endet der Lauf mit dem Fehler. Welche Provider ZDR und Tool-Calls anbieten, zeigt `node scripts/probe-openrouter.ts` (Abschnitt „Endpoints“) oder die Modellseite bei OpenRouter. Dann in `agent/models.json` zuerst `require_parameters` entfernen, nur im Notfall `zdr`.

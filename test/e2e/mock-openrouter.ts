@@ -4,7 +4,8 @@
  *
  * Every request is answered by `respond()`, which looks at the conversation and returns text
  * or tool calls. Each request is appended to `requests` for assertions. `GET /models/user`
- * answers 404, so Pi keeps its bundled OpenRouter catalog, as it does behind a proxy.
+ * answers 404, so Pi keeps its bundled OpenRouter catalog, as it does behind a proxy. Other GET
+ * routes (the endpoint lists the probe reads) can be served through the `get` option.
  */
 
 import { appendFileSync } from "node:fs";
@@ -42,6 +43,8 @@ export interface MockRequest {
 	/** Tools declared in `tools` plus tools added mid-conversation in a system message. */
 	toolNames: string[];
 	messages: ChatMessage[];
+	/** The request body as Pi sent it. */
+	body: Record<string, unknown>;
 	/** Text of every message after the last assistant message: tool results and user input. */
 	lastUserText: string;
 	/** Text of the first user message (the task). */
@@ -52,6 +55,8 @@ export interface MockRequest {
 }
 
 export type Responder = (request: MockRequest) => Reply;
+/** Answers a GET route with a JSON body, or undefined for 404. `path` is the URL after `/api/v1`. */
+export type GetHandler = (path: string, headers: IncomingMessage["headers"]) => unknown | undefined;
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -97,16 +102,20 @@ export class MockOpenRouter {
 	readonly requests: MockRequest[] = [];
 	private server: Server | undefined;
 	private readonly respond: Responder;
+	private readonly get: GetHandler | undefined;
 	port = 0;
 
-	constructor(respond: Responder) {
+	constructor(respond: Responder, options: { get?: GetHandler } = {}) {
 		this.respond = respond;
+		this.get = options.get;
 	}
 
 	async start(host = "127.0.0.1"): Promise<number> {
 		this.server = createServer(async (req, res) => {
 			if (req.method !== "POST" || !req.url?.includes("/chat/completions")) {
-				res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+				const found = req.method === "GET" && req.url ? this.get?.(req.url.replace(/^\/api\/v1/, ""), req.headers) : undefined;
+				if (found !== undefined) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(found));
+				else res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
 				return;
 			}
 			const raw = await readBody(req);
@@ -134,6 +143,7 @@ export class MockOpenRouter {
 					...new Set([...(body.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name), ...declaredTools(messages)]),
 				],
 				messages,
+				body,
 				lastUserText: messages
 					.slice(lastAssistant + 1)
 					.filter((message) => message.role === "user" || message.role === "tool")

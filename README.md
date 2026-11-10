@@ -43,6 +43,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
+│   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
+│   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
 │   ├── session-report.ts     cost, models, switches per reason and strong model, failed edits, loops,
 │   │                         gates from Pi's session logs
 │   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
@@ -72,4 +74,4 @@ scripts/build-image.sh   # pecker-nest-pi, labelled with the commit; pi-run.sh r
 npm run e2e:docker       # headless run in the container (acceptance tests 10, 11)
 ```
 
-The end-to-end tests cost no tokens: a local mock speaks OpenRouter's streaming chat-completions API and scripts the model's tool calls, so they check the wiring, not the models' judgment.
+The end-to-end tests cost no tokens: a local mock speaks OpenRouter's streaming chat-completions API and scripts the model's tool calls, so they check the wiring, not the models' judgment. What the real models and OpenRouter do with these requests is the job of `node scripts/probe-openrouter.ts`: it sends about twenty small real requests through Pi's own client and writes a report to `runs/`.
