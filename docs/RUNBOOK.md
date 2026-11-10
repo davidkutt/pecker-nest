@@ -327,10 +327,12 @@ Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pec
 
 **Jede Session:**
 
-1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff.
-2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären.
-3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
+1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff. In die Notiz kommt die geprüfte Konfiguration: pecker-nest-Commit, Pi-Version, Denkstufe je Stufe und Rolle, starkes Modell, und ob sich der Commit gegenüber der vorigen Notiz dieses Repos geändert hat. Claude tippt diese Zeile nicht selbst, sie kommt aus `node ~/dev/pecker-nest/scripts/field-note.ts config --repo undertext`. Nur damit ist ein Vorher-nachher-Vergleich gültig.
+2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären. Bei Fragen zu Prefill, Export oder Dateiformaten liest der Skill zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt.
+3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien, zählt die Mängel, die nests eigenes Gate und Review passiert haben (Bugs, abgeschwächte Tests, Regelbrüche), schließt die Notiz und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
 4. Ging etwas schief: `/rewind` in Pi stellt den Arbeitsstand vor einem deiner Prompts wieder her.
+
+**Sessions über mehrere Tage:** Eine Feldnotiz ist offen, bis in ihrem Abschnitt „Session“ ein End-HEAD steht. Hörst du nur für heute auf, sag das Claude; die Notiz bleibt offen. Am nächsten Tag setzt `/nest-supervise` sie fort, statt eine neue anzulegen, und `/nest-handoff` nimmt die offene Notiz des Repos, auch wenn sie Tage alt ist. Der Session-Report zählt dann alle Pi-Sessions seit dem Start der Notiz (`--since <Datum>`). Welche Notiz offen ist, zeigt `node ~/dev/pecker-nest/scripts/field-note.ts open --repo undertext` (derselbe Befehl in bash, zsh und fish).
 
 Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
 

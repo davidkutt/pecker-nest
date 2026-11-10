@@ -50,6 +50,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
+│   ├── field-note.ts         for the supervision skills: the configuration under test (commit, Pi,
+│   │                         thinking level per tier and role, strong model) and the open field note
 │   ├── session-report.ts     cost, models, switches per reason and strong model and what became of
 │   │                         them, request-time fallbacks, errors per upstream provider, failed
 │   │                         edits, loops, gates from Pi's session logs (offline)
