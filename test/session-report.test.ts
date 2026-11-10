@@ -332,7 +332,40 @@ describe("addEntries attributes requests to the upstream provider", () => {
 	});
 	it("carries the new fields in --json", () => {
 		const json = JSON.parse(JSON.stringify(buildReport([])));
-		for (const key of ["escalationOutcomes", "fallbacks", "providers"]) assert.ok(key in json.stats, `${key} is missing`);
+		for (const key of ["escalationOutcomes", "fallbacks", "providers", "tamper"]) assert.ok(key in json.stats, `${key} is missing`);
+	});
+});
+
+describe("addEntries counts the findings of the weakened-test check", () => {
+	const finding = (kind: string, path: string, line: number, detail = `${kind} found`) => ({ kind, path, line, detail });
+	const gateWith = (ok: boolean, tamper: unknown[]): Entry => ({ type: "custom", customType: "quality-gate", data: { ok, checkOk: true, tamper } });
+	const stats = addEntries(emptyStats(), [
+		user("step 1"),
+		assistant(FLASH),
+		gateWith(false, [finding("skip", "a.test.ts", 5), finding("suppression", "a.ts", 2)]),
+		repair(1),
+		assistant(FLASH),
+		// The suppression is gone; the skip marker moved two lines down and is the same finding.
+		gateWith(false, [finding("skip", "a.test.ts", 7)]),
+		user("step 2"),
+		assistant(FLASH),
+		gateWith(false, [finding("config", "tsconfig.json", 3)]),
+		repair(1),
+		assistant(FLASH),
+		gateWith(true, []),
+		user("step 3"),
+		assistant(FLASH),
+		gate(true),
+	]);
+	it("once per prompt, by kind, and those left when the run ended", () => {
+		assert.deepEqual(stats.tamper, { runs: 3, findings: 3, byKind: { skip: 1, suppression: 1, config: 1 }, remaining: 1 });
+		assert.deepEqual(stats.gate, { runs: 5, green: 2, red: 3, repairs: 2, handedBack: 0 });
+	});
+	it("in one line under Gates", () => {
+		const report = buildReport([]);
+		report.stats = stats;
+		assert.match(renderMarkdown(report), /Weakened-test check: 3 finding\(s\) in 3 gate run\(s\) \(skip 1, suppression 1, config 1\); 1 still there when the run ended\./);
+		assert.match(renderMarkdown(buildReport([])), /Weakened-test check: no findings\./);
 	});
 });
 

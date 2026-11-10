@@ -132,6 +132,11 @@ export interface Stats {
 	edits: { calls: number; failed: number };
 	loops: number;
 	gate: { runs: number; green: number; red: number; repairs: number; handedBack: number };
+	/**
+	 * The gate's weakened-test check: gate runs with findings, distinct findings per prompt (in
+	 * total and by kind), and how many were still there when the run ended.
+	 */
+	tamper: { runs: number; findings: number; byKind: Record<string, number>; remaining: number };
 	safetyBlocks: Record<string, number>;
 	compactions: number;
 	checkpoints: number;
@@ -154,6 +159,7 @@ export function emptyStats(): Stats {
 		edits: { calls: 0, failed: 0 },
 		loops: 0,
 		gate: { runs: 0, green: 0, red: 0, repairs: 0, handedBack: 0 },
+		tamper: { runs: 0, findings: 0, byKind: {}, remaining: 0 },
 		safetyBlocks: {},
 		compactions: 0,
 		checkpoints: 0,
@@ -216,6 +222,14 @@ export function addEntries(stats: Stats, entries: readonly Entry[], agent = "mai
 	let open: OpenSwitch | undefined;
 	/** The gate's last result since the prompt you typed, for a switch the gate itself caused. */
 	let gateSincePrompt: boolean | undefined;
+	/** Findings of the weakened-test check since the prompt: the distinct ones, and those of the last gate run. */
+	const seenFindings = new Set<string>();
+	let openFindings = 0;
+	const closePrompt = () => {
+		stats.tamper.remaining += openFindings;
+		openFindings = 0;
+		seenFindings.clear();
+	};
 	const closeSwitch = () => {
 		const closing = open;
 		if (!closing) return;
@@ -239,6 +253,7 @@ export function addEntries(stats: Stats, entries: readonly Entry[], agent = "mai
 				lastKey = undefined;
 				run = 0;
 				closeSwitch();
+				closePrompt();
 				gateSincePrompt = undefined;
 				if (agent === "main") {
 					const text = textOf(message.content).trimStart();
@@ -330,12 +345,24 @@ export function addEntries(stats: Stats, entries: readonly Entry[], agent = "mai
 			if (fallback) fallback.count++;
 			else stats.fallbacks.push({ ruledOut, kind, tookOver, count: 1 });
 		} else if (entry.type === "custom" && entry.customType === "quality-gate") {
-			const data = entry.data as { ok?: boolean } | undefined;
+			const data = entry.data as { ok?: boolean; tamper?: { kind?: string; path?: string; detail?: string }[] } | undefined;
 			stats.gate.runs++;
 			if (data?.ok) stats.gate.green++;
 			else stats.gate.red++;
 			gateSincePrompt = Boolean(data?.ok);
 			if (open) open.gate = gateSincePrompt;
+			const findings = Array.isArray(data?.tamper) ? data.tamper : [];
+			if (findings.length) stats.tamper.runs++;
+			openFindings = findings.length;
+			for (const finding of findings) {
+				// Without the line: it moves when the agent edits the file between two rounds.
+				const key = `${finding.kind} ${finding.path} ${finding.detail}`;
+				if (seenFindings.has(key)) continue;
+				seenFindings.add(key);
+				stats.tamper.findings++;
+				const kind = finding.kind ?? "unknown";
+				stats.tamper.byKind[kind] = (stats.tamper.byKind[kind] ?? 0) + 1;
+			}
 		} else if (entry.type === "custom_message" && entry.customType === "quality-gate") {
 			const text = textOf(entry.content);
 			if (/Repair round \d+/.test(text)) stats.gate.repairs++;
@@ -350,6 +377,7 @@ export function addEntries(stats: Stats, entries: readonly Entry[], agent = "mai
 		if (extra?.cost?.total) stats.otherCost += extra.cost.total;
 	}
 	closeSwitch();
+	closePrompt();
 	return stats;
 }
 
@@ -550,6 +578,15 @@ export function renderMarkdown(report: Report): string {
 	const gate = stats.gate;
 	lines.push("", "## Gates", "");
 	lines.push(`Quality gate: ${gate.runs} run(s), ${gate.green} green, ${gate.red} red, ${gate.repairs} repair round(s), handed back red ${gate.handedBack}×.`);
+	const tamper = stats.tamper;
+	if (tamper.findings) {
+		const kinds = Object.entries(tamper.byKind)
+			.map(([kind, count]) => `${kind} ${count}`)
+			.join(", ");
+		lines.push(`Weakened-test check: ${tamper.findings} finding(s) in ${tamper.runs} gate run(s) (${kinds}); ${tamper.remaining} still there when the run ended.`);
+	} else {
+		lines.push("Weakened-test check: no findings.");
+	}
 	const blocks = Object.entries(stats.safetyBlocks);
 	lines.push(blocks.length ? `Safety gate blocks: ${blocks.map(([reason, count]) => `${count}× ${reason}`).join("; ")}.` : "Safety gate blocks: none.");
 	lines.push("", `Compactions: ${stats.compactions}. Checkpoints: ${stats.checkpoints}.`);

@@ -190,7 +190,8 @@ Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4
 ## Quality Gate im Detail
 
 - **Auslöser:** am Ende eines Laufs, der Code geändert hat. Die Änderung wird per `git status` und Inhalts-Hash gegen den Stand bei Prompt-Start erkannt, plus `edit`/`write`-Aufrufe. Das erfasst auch Änderungen per `bash` oder durch Subagents.
-- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2) und `timeoutSeconds` (Standard 600).
+- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2), `timeoutSeconds` (Standard 600), `tamperCheck` (Standard `true`) und `tamperPatterns` (Standard leer).
+- **Prüfung auf abgeschwächte Tests (seit 10.11., zweites Update):** Das Gate vergleicht den Arbeitsstand bei deinem Prompt mit dem jetzigen und meldet mit Datei und Zeile: gelöschte Testdateien, weniger Testfälle in einer geänderten Testdatei, neue Skip- und Fokus-Marker, neue Unterdrückungen, Änderungen an Lint-, Typ- und Test-Konfiguration. Ein Befund zählt wie ein roter Check. `"tamperCheck": false` schaltet die Prüfung ab; `"tamperPatterns"` ergänzt eigene Muster, als Liste regulärer Ausdrücke oder als `{ "pattern": "…", "reason": "…" }`. Die Einzelheiten stehen oben im zweiten Update vom 10.11.
 - **Nur in vertrauten Projekten:** Die Datei enthält einen Befehl aus dem Repo.
 - **Abbruch:** nach `maxRepairRounds`, wenn eine Runde nichts geändert hat, oder bei Exit-Code 127 (Befehl fehlt, also Umgebungsproblem). Du bekommst dann einen Hinweis, headless auf stderr.
 - **Protokoll:** Jedes Ergebnis landet als Eintrag `quality-gate` im Session-Log.

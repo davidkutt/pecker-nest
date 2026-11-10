@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { TamperPattern } from "./tamper-check.ts";
 
 export interface GateConfig {
 	/** The repository's single check command, run with `bash -c` in the working directory. */
@@ -7,10 +8,14 @@ export interface GateConfig {
 	/** Automatic repair rounds before the gate hands back to the user. */
 	maxRepairRounds: number;
 	timeoutSeconds: number;
+	/** Look for weakened tests in the run's diff (lib/tamper-check.ts). On unless set to false. */
+	tamperCheck: boolean;
+	/** The repository's own patterns for that check: an added line that matches one is a finding. */
+	tamperPatterns: TamperPattern[];
 }
 
 export const GATE_CONFIG_PATH = ".pi/gate.json";
-const DEFAULTS = { maxRepairRounds: 2, timeoutSeconds: 600 };
+const DEFAULTS = { maxRepairRounds: 2, timeoutSeconds: 600, tamperCheck: true };
 
 /** Reads `.pi/gate.json`. Returns undefined when the file is absent; throws on invalid content. */
 export function loadGateConfig(cwd: string): GateConfig | undefined {
@@ -33,7 +38,34 @@ export function loadGateConfig(cwd: string): GateConfig | undefined {
 		command: record.command.trim(),
 		maxRepairRounds: nonNegativeInteger(record.maxRepairRounds, "maxRepairRounds") ?? DEFAULTS.maxRepairRounds,
 		timeoutSeconds: nonNegativeInteger(record.timeoutSeconds, "timeoutSeconds") ?? DEFAULTS.timeoutSeconds,
+		tamperCheck: optionalBoolean(record.tamperCheck, "tamperCheck") ?? DEFAULTS.tamperCheck,
+		tamperPatterns: tamperPatterns(record.tamperPatterns),
 	};
+}
+
+function optionalBoolean(value: unknown, key: string): boolean | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "boolean") throw new Error(`${GATE_CONFIG_PATH} "${key}" must be true or false`);
+	return value;
+}
+
+/** `tamperPatterns`: regular expressions as strings, or `{ "pattern": …, "reason": … }` objects. */
+function tamperPatterns(value: unknown): TamperPattern[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) throw new Error(`${GATE_CONFIG_PATH} "tamperPatterns" must be a list`);
+	return value.map((entry: unknown, index) => {
+		const record = typeof entry === "string" ? { pattern: entry } : (entry as { pattern?: unknown; reason?: unknown } | null);
+		if (!record || typeof record !== "object" || typeof record.pattern !== "string" || !record.pattern) {
+			throw new Error(`${GATE_CONFIG_PATH} "tamperPatterns" entry ${index + 1} needs a "pattern" string`);
+		}
+		try {
+			new RegExp(record.pattern);
+		} catch (error) {
+			throw new Error(`${GATE_CONFIG_PATH} "tamperPatterns" entry ${index + 1} is not a valid regular expression: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		const reason = typeof record.reason === "string" && record.reason.trim() ? record.reason.trim() : `matches the repository's pattern ${record.pattern}`;
+		return { pattern: record.pattern, reason };
+	});
 }
 
 function nonNegativeInteger(value: unknown, key: string): number | undefined {

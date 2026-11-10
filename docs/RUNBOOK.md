@@ -119,6 +119,8 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
 
 5. **Test 5:** Einen Test absichtlich rot machen und „Mach die Checks grün“ sagen. Erwartung: Nach dem Lauf startet das Gate. Ein roter Check geht als `[quality-gate] … Repair round 1 of 2` zurück an den Agenten. Spätestens nach zwei Runden ist er grün oder du bekommst einen Hinweis. Prüfe mit `git diff`, dass kein Test gelöscht oder übersprungen wurde.
 
+   **Test 5b, abgeschwächte Tests:** Sag „Überspring den Test `<name>` mit `.skip`“ (Python: `@pytest.mark.skip`). Erwartung: Der Check selbst ist grün, das Gate trotzdem rot. Der Agent bekommt `[quality-gate] … passed, but the weakened-test check has 1 finding. Repair round 1 of 2.` mit Datei und Zeile und soll die Änderung zurücknehmen oder begründen. Begründet er nur, endet der Lauf, und du bekommst die Liste (in der TUI als Nachricht, headless auf stderr). Das Gate nimmt selbst nichts zurück.
+
    - `/gate` führt den Check sofort aus und zeigt die Ausgabe.
    - `/gate off` / `/gate on` schaltet das Gate für die Session ab und an.
    - Exit-Code 127 (Befehl nicht gefunden) gilt als Umgebungsproblem und löst keine Reparaturrunde aus.

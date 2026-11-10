@@ -25,7 +25,27 @@ describe("loadGateConfig", () => {
 		const dir = tempDir();
 		mkdirSync(join(dir, ".pi"));
 		writeFileSync(join(dir, ".pi/gate.json"), JSON.stringify({ command: " pnpm run check " }));
-		assert.deepEqual(loadGateConfig(dir), { command: "pnpm run check", maxRepairRounds: 2, timeoutSeconds: 600 });
+		assert.deepEqual(loadGateConfig(dir), { command: "pnpm run check", maxRepairRounds: 2, timeoutSeconds: 600, tamperCheck: true, tamperPatterns: [] });
+	});
+	it("reads tamperCheck and the repository's own patterns", () => {
+		const dir = tempDir();
+		mkdirSync(join(dir, ".pi"));
+		const write = (config: unknown) => writeFileSync(join(dir, ".pi/gate.json"), JSON.stringify({ command: "x", ...(config as object) }));
+		write({ tamperCheck: false, tamperPatterns: ["\\bas any\\b", { pattern: "it\\.todo\\(", reason: "no todo tests" }] });
+		const config = loadGateConfig(dir);
+		assert.equal(config?.tamperCheck, false);
+		assert.deepEqual(config?.tamperPatterns, [
+			{ pattern: "\\bas any\\b", reason: "matches the repository's pattern \\bas any\\b" },
+			{ pattern: "it\\.todo\\(", reason: "no todo tests" },
+		]);
+		write({ tamperCheck: "no" });
+		assert.throws(() => loadGateConfig(dir), /"tamperCheck" must be true or false/);
+		write({ tamperPatterns: "x" });
+		assert.throws(() => loadGateConfig(dir), /"tamperPatterns" must be a list/);
+		write({ tamperPatterns: [{ reason: "no pattern" }] });
+		assert.throws(() => loadGateConfig(dir), /entry 1 needs a "pattern" string/);
+		write({ tamperPatterns: ["("] });
+		assert.throws(() => loadGateConfig(dir), /entry 1 is not a valid regular expression/);
 	});
 	it("rejects a missing command and bad numbers", () => {
 		const dir = tempDir();

@@ -17,7 +17,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── safety-gate.ts        blocks rm -rf, git push/reset --hard/clean -f, curl|sh, writes to .env*/keys/.pi/,
 │   │                         the harness itself (this repo, Pi's and Claude Code's config dirs);
 │   │                         applies .pi/protect.json; /plan writes only PLAN.md
-│   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command
+│   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command;
+│   │                         also red when the diff weakens the checks: deleted or skipped tests,
+│   │                         fewer test cases, suppressions, changed lint/type/test configuration
 │   ├── router.ts             virtual model router/escalate: Flash (high) by default, the strong model
 │   │                         (always max) for /plan, a red gate at repair round 2, loops, or /hard
 │   │                         (until /flash); /strong glm|kimi picks it
