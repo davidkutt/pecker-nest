@@ -260,13 +260,20 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 2. **Test 10:**
 
+   Einmalig den Container-Key (mit Kreditlimit) im macOS-Schlüsselbund ablegen. Der Befehl fragt nach dem Key, er bleibt also aus der Shell-History; er ist in bash, zsh und fish derselbe:
+
    ```bash
-   export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit Kreditlimit
+   security add-generic-password -U -a "$USER" -s pecker-nest-container-key -w
+   ```
+
+   Dann:
+
+   ```bash
    ~/dev/pecker-nest/docker/pi-run.sh -C ~/dev/pecker-api "<kleine Aufgabe>"
    ~/dev/pecker-nest/docker/pi-run.sh -C ~/dev/pecker-ml "<kleine Aufgabe>"
    ```
 
-   Der Key erreicht den Container als `OPENROUTER_API_KEY`. Ohne `PI_RUN_OPENROUTER_API_KEY` nimmt `pi-run.sh` dein `OPENROUTER_API_KEY` und warnt.
+   Der Key erreicht den Container als `OPENROUTER_API_KEY`, nur über die Umgebung. `pi-run.sh` sucht ihn so: `PI_RUN_OPENROUTER_API_KEY`, dann der Schlüsselbund-Eintrag `pecker-nest-container-key` (anderer Name: `PI_RUN_KEYCHAIN_SERVICE`). Dein interaktiver `OPENROUTER_API_KEY` ohne Limit wird nur mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1` verwendet. Sonst bricht das Skript mit Exit-Code 64 ab und nennt den Schlüsselbund-Befehl.
 
    Erwartung:
    - `result: ok`, `models exit: 0` und `gate exit: 0`. `models exit` ist `pi update --models` vor dem Lauf: Es lädt die Modellliste deines Container-Keys (braucht `pi.dev` und `openrouter.ai`). Scheitert es, läuft Pi mit seinem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem.
@@ -279,7 +286,7 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nimmt außerdem deren `mcp:`-Tools aus den Subagents, damit `planner` und `reviewer` trotzdem starten. Der Build zeigt das an, z. B. `mcp server kb: disabled in the container`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
 
-Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, sonst der Exit-Code von Pi.
+Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, 64 falscher Aufruf oder kein Container-Key, sonst der Exit-Code von Pi.
 
 ## M7 – Dogfooding mit Claude: undertext M1 (👤)
 

@@ -44,7 +44,7 @@ docker --version   # Docker Desktop muss laufen
 Auf openrouter.ai:
 
 1. **Settings → Privacy:** Zero Data Retention für „alle anderen Modelle“ einschalten. Danach bietet OpenRouter deinem Konto nur noch Provider an, die nichts speichern.
-2. **Keys → Create Key:** einen Key nur für den Container anlegen, Kreditlimit 20 $. Leg ihn in deinen Passwort-Manager; du brauchst ihn erst in Schritt 6.
+2. **Keys → Create Key:** einen Key nur für den Container anlegen, Kreditlimit 20 $. Leg ihn in deinen Passwort-Manager; in Schritt 6 kommt er in den macOS-Schlüsselbund.
 
 Für die interaktive Arbeit brauchst du keinen eigenen Key anzulegen. Du meldest dich in Schritt 4 mit `/login openrouter` an. Alternativ geht auch ein Key in der Umgebungsvariable `OPENROUTER_API_KEY`.
 
@@ -183,12 +183,19 @@ Das Image enthält eine Kopie von `pecker-nest`. Bau es nach jeder Config-Änder
 
 Optional ohne Kosten: `npm run e2e:docker` prüft das Image mit dem Stand-in.
 
-Erster echter Headless-Lauf mit dem Container-Key aus Schritt 2:
+Leg den Container-Key aus Schritt 2 einmal im macOS-Schlüsselbund ab. Der Befehl fragt nach dem Key; er steht damit weder in der Shell-History noch in einer Datei. Er ist in bash, zsh und fish derselbe:
 
 ```bash
-export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit 20 $ Limit
+security add-generic-password -U -a "$USER" -s pecker-nest-container-key -w
+```
+
+Erster echter Headless-Lauf:
+
+```bash
 ~/dev/pecker-nest/docker/pi-run.sh -C ~/dev/pecker-api "Füge einen Test für slugify mit Emojis hinzu"
 ```
+
+`pi-run.sh` sucht den Key in dieser Reihenfolge: `PI_RUN_OPENROUTER_API_KEY` (für einen einzelnen Lauf oder unter Linux), dann der Schlüsselbund-Eintrag `pecker-nest-container-key`. Deinen interaktiven `OPENROUTER_API_KEY` nimmt es nie von selbst: Der Container läuft mit `--approve`, und dieser Key hat kein Limit. Ohne Container-Key bricht das Skript mit Exit-Code 64 ab und nennt den Schlüsselbund-Befehl. Nur mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1` gibt es den interaktiven Key weiter, mit Warnung.
 
 `pi-run.sh` gibt am Ende `result: ok`, die Exit-Codes von Setup, Modellliste und Gate und die geänderten Dateien aus. Die Logs liegen unter `~/dev/pecker-nest/runs/` (`<id>.jsonl` und `<id>.stderr.log`). Im Container gibt es keine Knowledge Base; das ist so entschieden.
 
@@ -207,7 +214,7 @@ export PI_RUN_OPENROUTER_API_KEY=sk-or-...   # der Container-Key mit 20 $ Limit
 | „No endpoints found …“ beim Senden | Mit ZDR und `require_parameters` bleibt kein Provider übrig. Beim starken Modell weicht der Router selbst auf GLM 5.3 oder Flash aus und sagt es. Runbook, Abschnitt „Wenn Anfragen scheitern“. |
 | „gate.json ignored: this project is not trusted“ | In dem Repo `/trust` ausführen. |
 | Ein Befehl wird mit „Blocked by safety-gate“ abgelehnt | Absicht. Wenn du ihn wirklich willst, führ ihn selbst aus: `!befehl` in Pi oder im Terminal. |
-| `pi-run.sh`: „set PI_RUN_OPENROUTER_API_KEY …“ | Container-Key exportieren (Schritt 6). |
+| `pi-run.sh`: „error: no container key …“ | Der Container-Key fehlt im Schlüsselbund (Schritt 6). Ein exportierter `OPENROUTER_API_KEY` zählt absichtlich nicht. |
 | `pi-run.sh` meldet `models exit: 1` | Die Modellliste ließ sich nicht laden (keine Verbindung zu `pi.dev` oder `openrouter.ai`). Der Lauf geht mit Pis eingebautem Katalog weiter. |
 
 ## Rückgängig machen
