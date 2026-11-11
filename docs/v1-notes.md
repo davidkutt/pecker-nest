@@ -1,6 +1,70 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 10.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 10.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 10.11.2026 (zweite Übergabe): Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests
+
+Aus der zweiten Übergabe vom 10.11.: Die erste hat die Modelle und das Setup verbessert. Diese liefert, was die nächste begleitete Session braucht, um zu zeigen, ob das geholfen hat. Vier Punkte, ein Commit je Punkt.
+
+**Was neu ist:**
+
+| Bereich | Vorher (10.11., erste Übergabe) | Jetzt |
+| --- | --- | --- |
+| Session-Report, Ausgang der Wechsel | Wechsel zum starken Modell je Grund und je Modell gezählt | zusätzlich je Grund und starkem Modell: wie oft das Gate danach grün war, wie oft es rot zurückgab, wie viele Anfragen das starke Modell brauchte und was sie kosteten, z. B. `gate, GLM 5.3: 3 switches, 2 green, 1 handed back; 14 strong-model requests, $0.42` |
+| Session-Report, Ausweichen bei der Anfrage | nur als Hinweis im Terminal | eigene Zeilen: welches Modell ausgeschlossen wurde, warum, welches übernahm. Der Router schreibt dafür den Eintrag `nest-router-fallback` in die Session |
+| Session-Report, Provider | keine Angabe, welcher OpenRouter-Provider eine Anfrage bedient hat | Tabelle je Modell und Provider: Anfragen, Anfragefehler, gescheiterte Tool-Aufrufe und gescheiterte Edits. `extensions/provider-log.ts` schreibt den Provider bei der Anfrage in die Session (Eintrag `nest-provider`) |
+| Quality Gate | abgeschwächte Tests nur im Prompt verboten; nur der optionale Reviewer suchte danach | deterministische Prüfung des Diffs seit deinem Prompt (`extensions/lib/tamper-check.ts`). Ein Befund zählt wie ein roter Check |
+| `.pi/gate.json` | `command`, `maxRepairRounds`, `timeoutSeconds` | zusätzlich `tamperCheck` (Standard `true`) und `tamperPatterns` (eigene Muster) |
+| `doctor.sh` | scheiterte ohne laufenden Docker-Daemon und aktuelles Image | Daemon und Image nur mit `--docker`; ohne den Schalter eine Zeile `SKIP  docker: …`. Der Schlüsselbund-Eintrag bleibt geprüft, ohne `--docker` als `WARN` |
+| `/nest-handoff` | nahm die neueste Feldnotiz von heute | nimmt die offene Notiz des Repos: die neueste ohne End-HEAD. Sessions über mehrere Tage behalten eine Notiz |
+| `/nest-supervise` | notierte pecker-nest-Commit und Pi-Version | notiert dazu die Denkstufe je Stufe und Rolle und das starke Modell, gelesen aus dem Repo mit `scripts/field-note.ts`, und ob sich der Commit gegenüber der vorigen Notiz geändert hat |
+| Abschnitt für den Planungschat | Kosten, Wechsel, Eingriffe | zusätzlich die Mängel, die nests eigenes Gate und Review passiert haben (Bugs, abgeschwächte Tests, Regelbrüche), und die Zeilen zum Ausgang der Wechsel |
+| `grill-me` | fragte nach Prefill und Dateiformaten aus dem Stand | liest zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt |
+
+**Session-Report: wie der Ausgang eines Wechsels bestimmt wird**
+- Ein Wechsel beginnt mit dem Router-Eintrag, der auf das starke Modell umstellt, und endet mit deinem nächsten Prompt (oder dem Ende der Session). Auch eine Steering-Nachricht zählt als Prompt.
+- Sein Ausgang ist der letzte Gate-Lauf in dieser Zeit: grün („green“), rot („handed back“) oder kein Lauf („without a gate run“: `/plan`, Fragen, Repos ohne `gate.json`). Springt das starke Modell wegen eines roten Gates ein und das Gate läuft danach nicht mehr, weil die Runde nichts geändert hat, zählt der Wechsel als „handed back“.
+- Gezählt werden nur Anfragen, die ein starkes Modell bedient hat. Bleibt Flash trotz Wechsel am Zug (Bilder mit GLM), sind es null.
+- `/hard` über mehrere Prompts ist ein Wechsel, der mit dem ersten dieser Prompts endet: Der Router schreibt nur dann einen Eintrag, wenn sich die Stufe ändert.
+- `--json` trägt die neuen Felder: `stats.escalationOutcomes`, `stats.fallbacks`, `stats.providers`, `stats.tamper`.
+
+**Provider-Zuordnung: warum es keinen `--providers`-Schalter gibt**
+- Die Übergabe sah vor, die Antwort-IDs nachträglich über OpenRouters Generation-Abfrage aufzulösen, es sei denn, Pi gibt den Provider schon bei der Anfrage preis. Das tut Pi 1.5.0: Das Event `provider_stream_event` reicht jeden rohen Stream-Chunk an Extensions weiter, und OpenRouter nennt den Provider in jedem Chunk im Feld `provider` (dasselbe Feld liest die Live-Probe für ihre Spalte „Provider“).
+- `extensions/provider-log.ts` merkt sich daraus Antwort-ID und Provider und schreibt am Ende des Turns einen Eintrag `nest-provider`. Der Report verbindet ihn über die Antwort-ID mit der Assistant-Nachricht. Die ID kommt in der Session-Datei an (`message.responseId`; in einer Session-Datei aus dem E2E-Lauf nachgesehen).
+- Der Report bleibt damit offline: kein Key, keine Anfrage, kein Schalter.
+- Eine Anfrage, die scheitert, bevor ein Stream beginnt (404, 400), hat keinen Eintrag. Der Report liest den Provider dann aus dem Fehlertext, wenn OpenRouter dort `provider_name` nennt, und zeigt sonst „–“. Auch Sessions von vor diesem Stand zeigen „–“.
+- Die Extension läuft in der Hauptsession (über das Package) und in Subagents (`subagents.defaultSubagentOnlyExtensions`). Lädt ein Subagent sie doppelt, schreibt sie den Eintrag nur einmal.
+
+**Prüfung auf abgeschwächte Tests im Detail**
+- **Vergleich:** Bei jedem deiner Prompts hält das Gate den Arbeitsstand als Git-Tree fest, in einer temporären Kopie des Index. Index, Branch und Stash bleiben unberührt, ignorierte Dateien zählen nicht. Vor dem Check vergleicht es diesen Stand mit dem jetzigen (`git diff -M -U0`).
+- **Was gemeldet wird**, jeweils mit Datei und Zeile:
+  - gelöschte Testdateien (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, Code in `test/`, `tests/`, `__tests__/`, `e2e/`, `spec/`). Eine verschobene Testdatei ist keine gelöschte.
+  - weniger Testfälle in einer geänderten Testdatei. Gezählt werden Zeilen, die mit `it(`, `test(` oder `def test_` beginnen; entfernte minus hinzugefügte.
+  - neue Skip- und Fokus-Marker: `.skip`, `.only`, `.fixme`, `xit`, `xdescribe`, `fit`, `fdescribe`, die Option `{ skip: true }` (nur in Testdateien, weil `query.skip(10)` normaler Code ist); in Python `@pytest.mark.skip`, `xfail`, `pytest.skip(…)`, `unittest.skip`.
+  - neue Unterdrückungen: `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`, `eslint-disable`, `oxlint-disable`, `biome-ignore`; in Python `# type: ignore`, `# noqa`, `pyright: ignore`, `# pylint: disable`.
+  - Änderungen an Lint-, Typ- und Test-Konfiguration: Dateien wie `tsconfig*.json`, `eslint.config.*`, `.eslintrc*`, `.oxlintrc.json`, `biome.json`, `vitest.config.*`, `jest.config.*`, `playwright.config.*`, `pytest.ini`, `tox.ini`, `mypy.ini`, `pyrightconfig.json`, `ruff.toml`, `.flake8` (auch neu angelegte und gelöschte). In `package.json` ein geändertes oder entferntes Script und die Schlüssel `jest`, `eslintConfig`, `mocha`, `ava`, `vitest`, `c8`, `nyc`; neue Scripts und Abhängigkeiten nicht. In `pyproject.toml` die Tabellen `[tool.ruff]`, `[tool.pyright]`, `[tool.mypy]`, `[tool.pytest]`, `[tool.coverage]` und verwandte, in `setup.cfg` `[flake8]`, `[mypy]`, `[tool:pytest]`, `[coverage:*]`; Abhängigkeiten und `[tool.uv]` nicht.
+  - eigene Muster aus `tamperPatterns`, geprüft gegen jede hinzugefügte Zeile.
+- **Was „neu“ heißt:** Ein Marker zählt nur, wenn er netto dazukommt. Eine geänderte Zeile, die ihren Marker behält, ist eine entfernte und eine hinzugefügte Zeile und damit kein Befund.
+- **Ablauf:** Ein Befund macht das Gate rot, auch wenn der Check-Befehl grün ist (`… passed, but the weakened-test check has 1 finding. Repair round 1 of 2.`). Der Agent soll die Änderung zurücknehmen oder in einem Satz begründen. Begründet er nur und ändert nichts, endet der Lauf nach dieser einen Runde, und die Liste geht an dich: in der Session als Nachricht, headless auf stderr. Sind die Runden aufgebraucht, ebenso. Das Gate nimmt nie selbst etwas zurück.
+- **Router:** Ein Befund in Runde 2 ruft das starke Modell wie jedes rote Gate.
+- **Session-Log:** Der Eintrag `quality-gate` trägt die Befunde im Feld `tamper`. `ok` ist jetzt das Urteil des Gates (Check grün und kein Befund), `checkOk` das des Befehls. Der Report zählt die Befunde je Prompt einmal, nach Art, und nennt, wie viele am Ende des Laufs noch da waren.
+- **Grenzen:** Die Prüfung arbeitet zeilenweise, ohne Parser. Sie sieht nicht, wenn eine Assertion ausgehöhlt wird (`expect(true).toBe(true)`), wenn `parametrize`-Fälle wegfallen oder wenn ein Test umbenannt wird, sodass der Runner ihn nicht mehr findet. Dafür bleiben der Reviewer und die Zählung in `/nest-handoff`. Außerhalb eines Git-Repos läuft sie nicht und sagt das einmal. `/gate` von Hand führt nur den Befehl aus.
+- **Fehlalarme mit Ansage:** Wer ein Projekt aufsetzt, legt Konfigurationsdateien neu an und bekommt dafür Befunde. Das kostet eine Runde auf Flash und eine Liste, die du abnickst. Stört es in einem Repo, hilft `"tamperCheck": false`. `.pi/gate.json` selbst kann der Agent nicht ändern; das Safety-Gate schützt `.pi/`.
+
+**Weitere Befunde:**
+- **`agent_before_settle` ersetzt Einträge.** Gibt ein Handler `entries` zurück, ersetzt das die Vorschläge der Handler vor ihm (Pi-Doku, Abschnitt „turn_start / turn_end“). Das Quality-Gate hat bisher nur seine eigenen Einträge zurückgegeben und hängt sie jetzt an die vorhandenen an. Aufgefallen ist es beim neuen `nest-provider`-Eintrag.
+- **`SKIP` in `doctor.sh`:** Die Zeile zählt weder als Warnung noch als Fehler und steht nicht in der Summe. `/nest-supervise` übernimmt nur `WARN` und `FAIL` in die Feldnotiz; ohne `--docker` ruft `doctor.sh` Docker gar nicht auf.
+- **Feldnotizen finden:** Der Dateiname allein unterscheidet `undertext` nicht von `undertext-web`. `scripts/field-note.ts` liest deshalb zusätzlich die Zeile „Repository / branch“ der Notiz. Eine Notiz ohne die Zeile „Start HEAD → end HEAD“ gilt als geschlossen.
+- **Die Zeile „Config under test“** nennt `with uncommitted changes`, wenn der pecker-nest-Checkout nicht sauber ist. Die Zahlen einer solchen Session sind mit anderen nicht vergleichbar.
+
+**Getestet:** 329 Unit-Tests und 25 E2E-Szenarien. Neu sind zwei Szenarien: Ein übersprungener Test geht mit Datei und Zeile an den Agenten zurück und das Gate ist grün, sobald der Marker weg ist; bleibt er, bekommt der Nutzer die Liste, und die Datei bleibt, wie sie ist. Bestehende Szenarien prüfen jetzt zusätzlich den Ausgang eines Wechsels, das Ausweichen bei 404 und 400 im Report, den Provider je Anfrage in der Hauptsession und im Worker. Die Unit-Tests decken jeden Detektor an einem TypeScript- und einem Python-Repo ab, `doctor.sh` mit und ohne `--docker` gegen Stub-Programme und `scripts/field-note.ts` mit Notiz-Fixtures.
+
+**Nicht getestet:**
+- **Das Feld `provider` im echten OpenRouter-Stream.** Der Mock schickt es, weil OpenRouter es laut Doku schickt; `openrouter.ai` war aus der Build-Umgebung weiter nicht erreichbar. Zeigt die Tabelle „Providers“ nach der ersten echten Session überall „–“, fehlt das Feld. Dann ist die Abfrage über die Generation-ID der nächste Schritt; die ID steht schon in der Session-Datei.
+- **Die Skills selbst.** `/nest-supervise` und `/nest-handoff` sind Anweisungstexte für Claude Code. Getestet ist das Skript, aus dem sie ihre Zeilen nehmen, nicht ihr Ablauf.
+- **Die Anzeige in der TUI.** Reparaturrunde und Rückgabe mit Befundliste sind im Print-Modus geprüft.
+- **Docker.** Der Daemon lief in der Build-Umgebung nicht; `npm run e2e:docker` ist diesmal nicht gelaufen. Im Container gilt für die neue Prüfung dasselbe wie für den Rest des Gates: Sie braucht `git` im Arbeitsverzeichnis.
+- **macOS und Bash 3.2:** `doctor.sh` lief unter Bash 5 auf Linux. Die Änderung nutzt nur Konstrukte, die das Skript schon vorher nutzte.
 
 ## Update 10.11.2026: Setup-Härtung und Modell-Passung
 
@@ -190,7 +254,8 @@ Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4
 ## Quality Gate im Detail
 
 - **Auslöser:** am Ende eines Laufs, der Code geändert hat. Die Änderung wird per `git status` und Inhalts-Hash gegen den Stand bei Prompt-Start erkannt, plus `edit`/`write`-Aufrufe. Das erfasst auch Änderungen per `bash` oder durch Subagents.
-- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2) und `timeoutSeconds` (Standard 600).
+- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2), `timeoutSeconds` (Standard 600), `tamperCheck` (Standard `true`) und `tamperPatterns` (Standard leer).
+- **Prüfung auf abgeschwächte Tests (seit 10.11., zweites Update):** Das Gate vergleicht den Arbeitsstand bei deinem Prompt mit dem jetzigen und meldet mit Datei und Zeile: gelöschte Testdateien, weniger Testfälle in einer geänderten Testdatei, neue Skip- und Fokus-Marker, neue Unterdrückungen, Änderungen an Lint-, Typ- und Test-Konfiguration. Ein Befund zählt wie ein roter Check. `"tamperCheck": false` schaltet die Prüfung ab; `"tamperPatterns"` ergänzt eigene Muster, als Liste regulärer Ausdrücke oder als `{ "pattern": "…", "reason": "…" }`. Die Einzelheiten stehen oben im zweiten Update vom 10.11.
 - **Nur in vertrauten Projekten:** Die Datei enthält einen Befehl aus dem Repo.
 - **Abbruch:** nach `maxRepairRounds`, wenn eine Runde nichts geändert hat, oder bei Exit-Code 127 (Befehl fehlt, also Umgebungsproblem). Du bekommst dann einen Hinweis, headless auf stderr.
 - **Protokoll:** Jedes Ergebnis landet als Eintrag `quality-gate` im Session-Log.

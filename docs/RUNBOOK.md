@@ -28,7 +28,7 @@ node --version        # mindestens 22.18 (nur für npm run check / e2e)
 docker --version      # für M6
 ```
 
-Sobald das Repo geklont und verlinkt ist (M0), prüft ein Befehl alles auf einmal, auch Login, Modelle, Container-Key und Image: `~/dev/pecker-nest/scripts/doctor.sh`.
+Sobald das Repo geklont und verlinkt ist (M0), prüft ein Befehl alles auf einmal, auch Login und Modelle: `~/dev/pecker-nest/scripts/doctor.sh`. Docker-Daemon und Image prüft er nur mit `--docker` (für die Headless-Läufe aus M6).
 
 Alle Befehle in diesem Runbook laufen in bash, zsh und fish gleich. Wo sich fish unterscheidet, steht zuerst der Befehl für bash/zsh und danach der für fish. Eine Variable für einen einzelnen Befehl ist deshalb immer als `env NAME=wert befehl` geschrieben; das versteht jede der drei Shells.
 
@@ -118,6 +118,8 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
 4. **Test 4:** „Setz in `.env` DEBUG=1.“ Erwartung: Edit blockiert.
 
 5. **Test 5:** Einen Test absichtlich rot machen und „Mach die Checks grün“ sagen. Erwartung: Nach dem Lauf startet das Gate. Ein roter Check geht als `[quality-gate] … Repair round 1 of 2` zurück an den Agenten. Spätestens nach zwei Runden ist er grün oder du bekommst einen Hinweis. Prüfe mit `git diff`, dass kein Test gelöscht oder übersprungen wurde.
+
+   **Test 5b, abgeschwächte Tests:** Sag „Überspring den Test `<name>` mit `.skip`“ (Python: `@pytest.mark.skip`). Erwartung: Der Check selbst ist grün, das Gate trotzdem rot. Der Agent bekommt `[quality-gate] … passed, but the weakened-test check has 1 finding. Repair round 1 of 2.` mit Datei und Zeile und soll die Änderung zurücknehmen oder begründen. Begründet er nur, endet der Lauf, und du bekommst die Liste (in der TUI als Nachricht, headless auf stderr). Das Gate nimmt selbst nichts zurück.
 
    - `/gate` führt den Check sofort aus und zeigt die Ausgabe.
    - `/gate off` / `/gate on` schaltet das Gate für die Session ab und an.
@@ -325,14 +327,22 @@ Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pec
 
 **Jede Session:**
 
-1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff.
-2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären.
-3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
+1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff. In die Notiz kommt die geprüfte Konfiguration: pecker-nest-Commit, Pi-Version, Denkstufe je Stufe und Rolle, starkes Modell, und ob sich der Commit gegenüber der vorigen Notiz dieses Repos geändert hat. Claude tippt diese Zeile nicht selbst, sie kommt aus `node ~/dev/pecker-nest/scripts/field-note.ts config --repo undertext`. Nur damit ist ein Vorher-nachher-Vergleich gültig.
+2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären. Bei Fragen zu Prefill, Export oder Dateiformaten liest der Skill zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt.
+3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien, zählt die Mängel, die nests eigenes Gate und Review passiert haben (Bugs, abgeschwächte Tests, Regelbrüche), schließt die Notiz und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
 4. Ging etwas schief: `/rewind` in Pi stellt den Arbeitsstand vor einem deiner Prompts wieder her.
+
+**Sessions über mehrere Tage:** Eine Feldnotiz ist offen, bis in ihrem Abschnitt „Session“ ein End-HEAD steht. Hörst du nur für heute auf, sag das Claude; die Notiz bleibt offen. Am nächsten Tag setzt `/nest-supervise` sie fort, statt eine neue anzulegen, und `/nest-handoff` nimmt die offene Notiz des Repos, auch wenn sie Tage alt ist. Der Session-Report zählt dann alle Pi-Sessions seit dem Start der Notiz (`--since <Datum>`). Welche Notiz offen ist, zeigt `node ~/dev/pecker-nest/scripts/field-note.ts open --repo undertext` (derselbe Befehl in bash, zsh und fish).
 
 Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
 
-**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten.
+**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten. Der Befehl ist in bash, zsh und fish derselbe.
+
+Für die nächsten Entscheidungen im Planungschat zählen drei Stellen des Reports:
+
+- **Router, „Outcome of the switches“:** eine Zeile je Grund und starkem Modell, etwa `gate, GLM 5.3: 3 switches, 2 green, 1 handed back; 14 strong-model requests, $0.42`. Ein Wechsel reicht bis zu deinem nächsten Prompt; „green“ heißt, der letzte Gate-Lauf in dieser Zeit war grün, „handed back“, dass das Gate rot an dich zurückgab, „without a gate run“, dass kein Gate lief (`/plan`, Fragen, Repos ohne `gate.json`). Daran hängen die Schwellen, der Nutzen von `max` und GLM gegen Kimi.
+- **Router, „Fallbacks at request time“:** eine Zeile je Ausweichen, etwa `Kimi K3.1 Pro ruled out (no endpoint under the routing rules), GLM 5.3 took over: 1×`.
+- **Providers:** je Modell und OpenRouter-Provider die Anfragen, Anfragefehler, gescheiterten Tool-Aufrufe und gescheiterten Edits der Turns, die dieser Provider bedient hat. Häufen sich die Fehler bei einem Provider, ist das der Anlass, Provider zu pinnen. „–“ steht für Anfragen ohne bekannten Provider: Sessions von vor diesem Stand und Anfragen, die scheiterten, bevor eine Antwort kam. Den Provider liest `extensions/provider-log.ts` aus dem Stream der Antwort; der Report schickt dafür keine Anfrage.
 
 ## Neue Abnahmetests 12 und 13 (👤 je 5 Minuten)
 
@@ -372,10 +382,16 @@ Den Bericht gibst du dem Planungschat. Was daraus folgt (Provider festlegen, Fla
 cd ~/dev/pecker-nest
 npm ci && npm run check && npm run e2e     # ohne Tokens, prüft die Verdrahtung gegen dein installiertes Pi
 scripts/build-image.sh && npm run e2e:docker
-scripts/doctor.sh                          # Werkzeuge, Links, Login, Modelle, Container-Key, Image
+scripts/doctor.sh --docker                 # Werkzeuge, Links, Login, Modelle, dazu Docker-Daemon, Image und Container-Key
 ```
 
-`scripts/doctor.sh` gibt je Prüfung eine Zeile aus, die mit `PASS`, `WARN` oder `FAIL` beginnt; `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Bei einem `FAIL` ist der Exit-Code 1. Es prüft unter anderem, ob `pi --version` zur Version in `package.json` passt (älter: `FAIL`; neuer: `WARN`, dann zuerst `npm run e2e`), und ob das Image vom aktuellen Commit stammt. Mit `--repo <pfad>` prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Es ändert nichts, gibt keine Schlüssel aus und kostet keine Tokens.
+Die zweite und die dritte Zeile brauchst du nur für Headless-Läufe im Container. Solange die zurückgestellt sind, genügen `npm ci && npm run check && npm run e2e` und `scripts/doctor.sh` ohne `--docker`; ein neues Image nach jedem Pull ist dann nicht nötig.
+
+`scripts/doctor.sh` gibt je Prüfung eine Zeile aus, die mit `PASS`, `WARN` oder `FAIL` beginnt; `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Bei einem `FAIL` ist der Exit-Code 1. Es prüft unter anderem, ob `pi --version` zur Version in `package.json` passt (älter: `FAIL`; neuer: `WARN`, dann zuerst `npm run e2e`). Es ändert nichts, gibt keine Schlüssel aus und kostet keine Tokens.
+
+- **Ohne `--docker`** bleiben Docker-Daemon und Image ungeprüft. Dafür steht eine Zeile `SKIP  docker: …` in der Ausgabe, die den Befehl mit `--docker` nennt; sie zählt weder als Warnung noch als Fehler. Der Schlüsselbund-Eintrag `pecker-nest-container-key` wird trotzdem geprüft, weil die Live-Probe denselben Eintrag liest. Fehlt er, ist das hier nur ein `WARN`.
+- **Mit `--docker`** kommen die Prüfungen für Headless-Läufe dazu: Der Daemon muss laufen, das Image muss vom aktuellen Commit stammen, und ein fehlender Schlüsselbund-Eintrag ist ein `FAIL`.
+- **Mit `--repo <pfad>`** prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Beide Schalter lassen sich kombinieren.
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
 

@@ -17,11 +17,15 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── safety-gate.ts        blocks rm -rf, git push/reset --hard/clean -f, curl|sh, writes to .env*/keys/.pi/,
 │   │                         the harness itself (this repo, Pi's and Claude Code's config dirs);
 │   │                         applies .pi/protect.json; /plan writes only PLAN.md
-│   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command
+│   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command;
+│   │                         also red when the diff weakens the checks: deleted or skipped tests,
+│   │                         fewer test cases, suppressions, changed lint/type/test configuration
 │   ├── router.ts             virtual model router/escalate: Flash (high) by default, the strong model
 │   │                         (always max) for /plan, a red gate at repair round 2, loops, or /hard
 │   │                         (until /flash); /strong glm|kimi picks it
 │   ├── checkpoint.ts         git checkpoint before every prompt; /rewind, /checkpoints
+│   ├── provider-log.ts       records the upstream OpenRouter provider of every request in the session
+│   │                         file (from the stream, no extra request), for the session report
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested
 ├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual)
@@ -41,12 +45,16 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │                             image), task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
-│   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix
+│   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
+│   │                         --docker adds the daemon and image checks for headless runs
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
-│   ├── session-report.ts     cost, models, switches per reason and strong model, failed edits, loops,
-│   │                         gates from Pi's session logs
+│   ├── field-note.ts         for the supervision skills: the configuration under test (commit, Pi,
+│   │                         thinking level per tier and role, strong model) and the open field note
+│   ├── session-report.ts     cost, models, switches per reason and strong model and what became of
+│   │                         them, request-time fallbacks, errors per upstream provider, failed
+│   │                         edits, loops, gates from Pi's session logs (offline)
 │   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
 └── test/                     unit tests; e2e/ runs real Pi against a scripted OpenRouter mock
 ```
@@ -58,7 +66,7 @@ git clone -b main https://github.com/davidkutt/pecker-nest ~/dev/pecker-nest
 ~/dev/pecker-nest/scripts/link.sh --claude
 pi            # first start installs pi-subagents@0.87.0; then /login openrouter
 pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
-~/dev/pecker-nest/scripts/doctor.sh   # tools, links, login, models, container key, image
+~/dev/pecker-nest/scripts/doctor.sh   # tools, links, login, models; --docker adds daemon and image
 ```
 
 In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.

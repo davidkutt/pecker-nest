@@ -69,14 +69,15 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | `agent/models.json` | OpenRouter-Routing: `zdr`, `data_collection: deny`, `require_parameters`; dazu ein `modelOverrides`-Eintrag, damit Kimi K3.1 Pro ein Gespräch übernehmen kann, das Flash begonnen hat | Stimmt das mit deiner Datenschutz-Entscheidung überein? |
 | `agent/APPEND_SYSTEM.md` | Globale Arbeitsregeln für das Modell | Passen sie zu deiner Arbeitsweise? |
 | `extensions/safety-gate.ts`, `extensions/lib/safety-rules.ts`, `extensions/lib/protect-config.ts` | Blockiert `rm -rf`, `git push`, `git reset --hard`, `curl … \| sh`, Schreiben auf `.env`, Secrets, `.pi/` und die Harness selbst; wendet `.pi/protect.json` je Repo an | Fehlt dir etwas, oder ist etwas zu streng? |
-| `extensions/quality-gate.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden | Läuft nur in Repos, denen du vertraust (`/trust`) |
+| `extensions/quality-gate.ts`, `extensions/lib/tamper-check.ts` | Führt nach Code-Änderungen den Befehl aus `.pi/gate.json` aus, höchstens zwei Reparaturrunden. Prüft dabei den Diff auf abgeschwächte Tests: gelöschte Testdateien, weniger Testfälle, neue Skip-Marker und Unterdrückungen, geänderte Lint-, Typ- und Test-Konfiguration | Läuft nur in Repos, denen du vertraust (`/trust`). Die Prüfung macht nichts rückgängig; was bleibt, bekommst du als Liste |
 | `extensions/router.ts`, `extensions/lib/router-logic.ts` | Virtuelles Modell `router/escalate`: Flash für jeden Prompt, das starke Modell für `/plan`, ein rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Die Schwellen und `DEFAULT_STRONG` in `router-logic.ts` |
 | `extensions/checkpoint.ts`, `extensions/lib/checkpoint.ts` | Git-Checkpoint vor jedem Prompt, `/rewind` | Ruft `git` auf, schreibt nur Refs unter `refs/nest/checkpoints/` |
+| `extensions/provider-log.ts`, `extensions/lib/provider-log.ts` | Schreibt zu jeder Anfrage den OpenRouter-Provider in die Session-Datei, aus dem Stream der Antwort | Schickt selbst keine Anfrage und braucht keinen Key |
 | `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
-| `scripts/session-report.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus |
+| `scripts/session-report.ts`, `scripts/field-note.ts`, `claude/skills/` | Kennzahlen aus Pis Session-Logs; die geprüfte Konfiguration und die offene Feldnotiz für die Übergabe; Claude-Code-Skills für begleitete Sessions | Der Report gibt nur Zahlen und Pfade aus und arbeitet offline |
 | `agent/agents/*.md` | Die vier Rollen `scout`, `planner`, `worker`, `reviewer` | Modell und Tools je Rolle |
 | `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh`, `scripts/build-image.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht; woher `pi-run.sh` den Key nimmt |
-| `scripts/doctor.sh`, `scripts/probe-openrouter.ts` | Prüft, ob der Rechner bereit ist (liest nur); Live-Probe gegen OpenRouter, die du selbst startest | Die Probe schickt echte Anfragen (ein paar Cent) |
+| `scripts/doctor.sh`, `scripts/probe-openrouter.ts` | Prüft, ob der Rechner bereit ist (liest nur; Docker-Daemon und Image nur mit `--docker`); Live-Probe gegen OpenRouter, die du selbst startest | Die Probe schickt echte Anfragen (ein paar Cent) |
 | `docs/v1-notes.md` | Abweichungen vom Plan, Prüfung von pi-subagents, was nicht getestet ist | – |
 
 Fremdcode: `pi-subagents@0.87.0` von npm, dazu zwei unveränderte Beispiele aus Pi (`extensions/vendor/`) und der Skill `grill-me` nach Matt Pocock (MIT). Was ich daran geprüft habe, steht in `docs/v1-notes.md` im Abschnitt „pi-subagents“.
@@ -139,7 +140,7 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    ~/dev/pecker-nest/scripts/doctor.sh
    ```
 
-   Jede Zeile beginnt mit `PASS`, `WARN` oder `FAIL`, und `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Jetzt sind noch zwei `FAIL` zu erwarten: der Schlüsselbund-Eintrag und das Image kommen erst in Schritt 6.
+   Jede Zeile beginnt mit `PASS`, `WARN` oder `FAIL`, und `WARN` und `FAIL` enden mit dem Befehl, der es behebt. Jetzt sollte keine Zeile mit `FAIL` beginnen. Docker-Daemon und Image prüft der Befehl erst mit `--docker`; ohne den Schalter steht dafür eine Zeile `SKIP  docker: …` da. Zu erwarten ist noch ein `WARN` für den Schlüsselbund-Eintrag, den du erst in Schritt 6 anlegst.
 
 6. Kurzer Rauchtest mit echtem Modell (kostet weniger als einen Cent):
 
@@ -205,7 +206,7 @@ Erster echter Headless-Lauf:
 
 `pi-run.sh` sucht den Key in dieser Reihenfolge: `PI_RUN_OPENROUTER_API_KEY` (für einen einzelnen Lauf oder unter Linux), dann der Schlüsselbund-Eintrag `pecker-nest-container-key`. Deinen interaktiven `OPENROUTER_API_KEY` nimmt es nie von selbst: Der Container läuft mit `--approve`, und dieser Key hat kein Limit. Ohne Container-Key bricht das Skript mit Exit-Code 64 ab und nennt den Schlüsselbund-Befehl. Nur mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1` gibt es den interaktiven Key weiter, mit Warnung.
 
-Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh`, ob Key und Image bereit sind; jetzt sollte keine Zeile mehr mit `FAIL` beginnen.
+Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und Image bereit sind; jetzt sollte keine Zeile mehr mit `FAIL` beginnen. Der Befehl ist in bash, zsh und fish derselbe.
 
 `pi-run.sh` gibt am Ende `result: ok`, die Exit-Codes von Setup, Modellliste und Gate und die geänderten Dateien aus. Die Logs liegen unter `~/dev/pecker-nest/runs/` (`<id>.jsonl` und `<id>.stderr.log`). Im Container gibt es keine Knowledge Base; das ist so entschieden.
 

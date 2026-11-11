@@ -142,6 +142,19 @@ export function ruledOut(failed: FailedRequest, unusable: ReadonlySet<Strong>): 
 	return kind === "routing" || kind === "request" ? { strong, kind } : undefined;
 }
 
+/** The session entry (`type: "custom"`) the router writes when it rules a strong model out. */
+export const FALLBACK_ENTRY = "nest-router-fallback";
+
+/** One request-time fallback: which strong model was ruled out, why, and what took over. */
+export interface FallbackRecord {
+	ruledOut: Strong;
+	kind: "routing" | "request";
+	/** The strong model that serves instead, or `flash` when none is left. */
+	tookOver: Strong | "flash";
+	/** The failed request's error on one line. */
+	error: string;
+}
+
 /** A failed request's error on one line for a notice: status and message, without the JSON wrapper. */
 export function shortError(errorMessage: string | undefined, max = 160): string {
 	if (!errorMessage) return "no error message";

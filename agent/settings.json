@@ -26,7 +26,8 @@
   "subagents": {
     "defaultModel": "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "defaultSubagentOnlyExtensions": [
-      "~/dev/pecker-nest/extensions/safety-gate.ts"
+      "~/dev/pecker-nest/extensions/safety-gate.ts",
+      "~/dev/pecker-nest/extensions/provider-log.ts"
     ],
     "agentOverrides": {
       "oracle": { "model": "openrouter/z-ai/glm-5.3" },

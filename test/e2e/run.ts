@@ -1,8 +1,9 @@
 /**
  * End-to-end checks: a real Pi loads this package and talks to a scripted mock of the
  * OpenRouter API. No API key, no token cost. Covers the default model and OpenRouter routing
- * preferences, the safety gate, the quality gate's repair loop, /plan, project trust, the
- * escalation router, the safety gate inside a subagent, and the review chain's model assignment.
+ * preferences, the safety gate, the quality gate's repair loop and its weakened-test check, /plan,
+ * project trust, the escalation router, the safety gate inside a subagent, and the review chain's
+ * model assignment.
  *
  *   npm run e2e                 # uses `pi` from PATH
  *   PI_BIN=/path/to/pi npm run e2e
@@ -19,7 +20,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MockOpenRouter, type MockRequest, type Reply } from "./mock-openrouter.ts";
+import { MockOpenRouter, type MockRequest, mockProvider, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PI = process.env.PI_BIN ?? "pi";
@@ -45,6 +46,10 @@ const NO_ENDPOINTS = {
 	message: "No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy",
 };
 let rateLimitedOnce = false;
+
+/** A test file as the repository has it, and the same file with its test skipped. */
+const HONEST_TEST = 'const test = require("node:test");\n\ntest("value is ok", () => {});\n';
+const SKIPPED_TEST = HONEST_TEST.replace("test(", "test.skip(");
 
 /** Scenarios in which OpenRouter refuses a strong model at request time. */
 function refusal(request: MockRequest): Reply | undefined {
@@ -86,6 +91,14 @@ function respond(request: MockRequest): Reply {
 			return step % 2 === 0 ? tool("write", { path: "value.txt", content: `bad ${step}\n` }) : say("done");
 		case "gate-stuck":
 			return step === 0 ? tool("write", { path: "value.txt", content: "bad\n" }) : say("I cannot fix this");
+		case "gate-skip":
+			// Skips the test instead of fixing anything, and takes the skip back when the gate names it.
+			if (step === 0) return tool("write", { path: "value.test.js", content: SKIPPED_TEST });
+			if (request.lastUserText.includes("Repair round 1 of 2") && step === 2) return tool("write", { path: "value.test.js", content: HONEST_TEST });
+			return say(step === 1 ? "done" : "took the skip back");
+		case "gate-skip-kept":
+			// Skips the test and, asked about it, says why instead of reverting.
+			return step === 0 ? tool("write", { path: "value.test.js", content: SKIPPED_TEST }) : say(step === 1 ? "done" : "The skip is right: the test needs the network.");
 		case "plan":
 			return [tool("write", { path: "src/app.ts", content: "export {}\n" }), tool("write", { path: "PLAN.md", content: "# Plan\n" }), say("planned")][step] ?? say("planned");
 		case "untrusted":
@@ -290,6 +303,16 @@ function runPiRpc(cwd: string, message: string, done: () => boolean): Promise<vo
 	});
 }
 
+/** The session report of a repository's sessions, as JSON. */
+function sessionReport(repo: string, ...args: string[]) {
+	const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json", ...args], {
+		encoding: "utf-8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	});
+	assert.equal(report.status, 0, report.stderr);
+	return JSON.parse(report.stdout);
+}
+
 function assertChain(scenario: string) {
 	const byRole = new Map<string, MockRequest>();
 	for (const request of requestsFor(scenario)) {
@@ -399,6 +422,42 @@ const scenarios: [string, () => Promise<void>][] = [
 		},
 	],
 	[
+		"quality gate sends a skipped test back as a repair round that names file and line, and is green once the skip is gone",
+		async () => {
+			const repo = makeRepo("gate-skip", { "value.test.js": HONEST_TEST });
+			const run = await runPi(repo, ["-p", "--approve", "[scenario:gate-skip] make the check pass"]);
+			assert.equal(run.code, 0, run.stderr);
+			const repairs = requestsFor("gate-skip").filter((request) => request.lastUserText.includes("[quality-gate]"));
+			assert.equal(repairs.length, 1, "one repair round");
+			// The check command itself passed: the finding alone makes the gate red.
+			assert.match(repairs[0].lastUserText, /\[quality-gate\] `node check\.js` passed, but the weakened-test check has 1 finding\. Repair round 1 of 2\./);
+			assert.match(repairs[0].lastUserText, /^- value\.test\.js:3: skip or focus marker added: \.skip$/m);
+			assert.match(repairs[0].lastUserText, /revert it, or, if the change is right .* keep it and say why/);
+			assert.ok(repairs.every((request) => request.model === FLASH), "a first repair round stays on Flash");
+			assert.equal(readFileSync(join(repo, "value.test.js"), "utf-8"), HONEST_TEST, "the agent took the skip back; the gate reverts nothing itself");
+			assert.match(run.stderr, /Gate green after 1 repair round/);
+			const { stats } = sessionReport(repo);
+			assert.deepEqual(stats.tamper, { runs: 1, findings: 1, byKind: { skip: 1 }, remaining: 0 });
+			assert.deepEqual(stats.gate, { runs: 2, green: 1, red: 1, repairs: 1, handedBack: 0 });
+		},
+	],
+	[
+		"quality gate hands a skipped test that stays back to the user with the list, and reverts nothing",
+		async () => {
+			const repo = makeRepo("gate-skip-kept", { "value.test.js": HONEST_TEST });
+			const run = await runPi(repo, ["-p", "--approve", "[scenario:gate-skip-kept] make the check pass"]);
+			assert.equal(run.code, 0, run.stderr);
+			const repairs = requestsFor("gate-skip-kept").filter((request) => request.lastUserText.includes("Repair round"));
+			assert.equal(repairs.length, 1, "the agent's answer changed nothing, so there is no second round");
+			assert.match(run.stderr, /changed nothing; stopped\. 1 finding of the weakened-test check for you to judge:\n- value\.test\.js:3: skip or focus marker added: \.skip/);
+			assert.equal(readFileSync(join(repo, "value.test.js"), "utf-8"), SKIPPED_TEST, "the gate never reverts anything itself");
+			const { stats } = sessionReport(repo);
+			assert.deepEqual(stats.tamper, { runs: 1, findings: 1, byKind: { skip: 1 }, remaining: 1 });
+			assert.equal(stats.gate.handedBack, 1, "the list went to the user");
+			assert.equal(stats.gate.green, 0, "a passing check with a finding is not green");
+		},
+	],
+	[
 		"/plan writes only PLAN.md and does not start the gate (test 2)",
 		async () => {
 			const repo = makeRepo("plan", {});
@@ -451,17 +510,22 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.ok(requests.slice(round2).every((request) => request.model === GLM && request.effort === "max"), "GLM max from round 2");
 			assert.match(run.stderr, /\[router\] GLM 5\.3 at max \(gate: quality gate still red at repair round 2\)/);
 			// The session report reads the same session back.
-			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
-				encoding: "utf-8",
-				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
-			});
-			assert.equal(report.status, 0, report.stderr);
-			const { stats } = JSON.parse(report.stdout);
+			const { stats } = sessionReport(repo);
 			assert.deepEqual(stats.escalations, { gate: 1 });
 			assert.equal(stats.gate.repairs, 2);
 			assert.equal(stats.gate.handedBack, 1);
 			assert.ok(stats.models[FLASH].requests > 0 && stats.models[GLM].requests > 0);
 			assert.equal(stats.checkpoints, 1);
+			// The outcome of the switch: GLM did not get the gate green, in two requests.
+			const strongRequests = requests.slice(round2).length;
+			assert.equal(stats.escalationOutcomes.length, 1);
+			const { cost, ...outcome } = stats.escalationOutcomes[0];
+			assert.deepEqual(outcome, { why: "gate", strong: "glm", switches: 1, green: 0, handedBack: 1, noGate: 0, requests: strongRequests });
+			assert.ok(Math.abs(cost - stats.models[GLM].cost) < 1e-9, "the switch cost what GLM cost");
+			assert.deepEqual(stats.fallbacks, []);
+			// The provider log names the upstream provider of every request, from the stream.
+			assert.deepEqual(Object.keys(stats.providers[FLASH]), [mockProvider(FLASH)], "every Flash request has its provider");
+			assert.deepEqual(stats.providers[GLM], { [mockProvider(GLM)]: { requests: strongRequests, errors: 0, failedTools: 0, failedEdits: 0 } });
 		},
 	],
 	[
@@ -515,15 +579,14 @@ const scenarios: [string, () => Promise<void>][] = [
 			const sessions = new Set(mock.requests.filter((request) => request.scenario?.startsWith("strong-")).map((request) => request.sessionId));
 			assert.equal(sessions.size, 1, "switching the strong model keeps the session id");
 			// The session report attributes the switches to Kimi.
-			const report = spawnSync(process.execPath, [join(NEST, "scripts/session-report.ts"), "--cwd", repo, "--json"], {
-				encoding: "utf-8",
-				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
-			});
-			assert.equal(report.status, 0, report.stderr);
-			const { stats } = JSON.parse(report.stdout);
+			const { stats } = sessionReport(repo);
 			assert.deepEqual(stats.escalations, { plan: 1, loop: 1 });
 			assert.deepEqual(stats.escalationsByModel, { kimi: 2 });
 			assert.ok(stats.models[KIMI].requests > 0, "Kimi appears in the model table");
+			const outcomes = stats.escalationOutcomes.map((outcome: { why: string; strong: string; requests: number; noGate: number }) => [outcome.why, outcome.strong, outcome.requests, outcome.noGate]);
+			assert.deepEqual(outcomes, [["plan", "kimi", 2, 1], ["loop", "kimi", 1, 1]], "per reason and strong model; no gate in this repository");
+			// Flash's three failed bash calls are counted on the provider that served those turns.
+			assert.equal(stats.providers[FLASH][mockProvider(FLASH)].failedTools, 3);
 		},
 	],
 	[
@@ -586,6 +649,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
 			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, no endpoint under the routing rules \(404: No endpoints found matching your data policy.*\); using GLM 5\.3 instead/);
+			// The session report counts the fallback on its own line, and the failed request has no provider.
+			const { stats } = sessionReport(repo);
+			assert.deepEqual(stats.fallbacks, [{ ruledOut: "kimi", kind: "routing", tookOver: "glm", count: 1 }]);
+			assert.deepEqual(stats.providers[KIMI], { "–": { requests: 1, errors: 1, failedTools: 0, failedEdits: 0 } });
 		},
 	],
 	[
@@ -604,6 +671,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.equal(notices.length, 2, `one notice per model, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, .*; using GLM 5\.3 instead/);
 			assert.match(notices[1], /GLM 5\.3 failed, .*; using DeepSeek V4\.1 Flash instead/);
+			assert.deepEqual(sessionReport(repo).stats.fallbacks, [
+				{ ruledOut: "kimi", kind: "routing", tookOver: "glm", count: 1 },
+				{ ruledOut: "glm", kind: "routing", tookOver: "flash", count: 1 },
+			]);
 		},
 	],
 	[
@@ -620,6 +691,8 @@ const scenarios: [string, () => Promise<void>][] = [
 			const notices = run.stderr.split("\n").filter((line) => /\[router\] .*(failed|not available)/.test(line));
 			assert.equal(notices.length, 1, `exactly one notice, got:\n${notices.join("\n")}`);
 			assert.match(notices[0], /Kimi K3\.1 Pro failed, the request was rejected \(400: Provider returned error\); using GLM 5\.3 instead/);
+			// A fallback inside Pi's retry is recorded like one the router continued itself.
+			assert.deepEqual(sessionReport(repo).stats.fallbacks, [{ ruledOut: "kimi", kind: "request", tookOver: "glm", count: 1 }]);
 		},
 	],
 	[
@@ -693,6 +766,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.ok(child.every((request) => request.model === FLASH && request.effort === "high"));
 			assert.match(child[1].lastUserText, /Blocked by safety-gate/);
 			assert.ok(existsSync(join(repo, "build/out.js")));
+			// The provider log runs in the subagent too: no request without a provider.
+			const { stats } = sessionReport(repo);
+			assert.ok(stats.agents.worker?.requests >= 2, "the worker's session is part of the report");
+			assert.deepEqual(Object.keys(stats.providers[FLASH]), [mockProvider(FLASH)], "main session and worker both record the provider");
 		},
 	],
 	[

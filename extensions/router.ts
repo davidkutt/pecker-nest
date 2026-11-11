@@ -29,15 +29,18 @@
  * The tier and the strong choice are router state: Pi stores them on the session branch (custom
  * entries `pi.virtual-model-state`), so they follow /tree, forks and compaction, and the session
  * report can count escalations per reason and per strong model. States written before /strong
- * existed carry `tier: "glm"` and still read as GLM. Switching models costs one prompt-cache
- * miss. Pattern: docs/virtual-models.md in Pi.
+ * existed carry `tier: "glm"` and still read as GLM. A model ruled out at request time is
+ * recorded too (custom entry `nest-router-fallback`: which model, why, what took over). Switching
+ * models costs one prompt-cache miss. Pattern: docs/virtual-models.md in Pi.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_STRONG,
 	decide,
+	FALLBACK_ENTRY,
 	type FailedRequest,
+	type FallbackRecord,
 	FLASH,
 	hasImages,
 	isStrong,
@@ -84,23 +87,22 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Rules the strong model of a failed request out for this process and says so once. False when
-	 * the failure is none another model would fix, or the model is already ruled out.
+	 * Rules the strong model of a failed request out for this process and says so once. Returns
+	 * the fallback for the session file, or undefined when the failure is none another model would
+	 * fix, or the model is already ruled out.
 	 */
-	function ruleOut(ctx: ExtensionContext, failed: FailedRequest): boolean {
+	function ruleOut(ctx: ExtensionContext, failed: FailedRequest): FallbackRecord | undefined {
 		const out = ruledOut(failed, unusable);
-		if (!out) return false;
+		if (!out) return undefined;
 		unusable.add(out.strong);
 		// This notice covers the fallback; the registry notices in route() stay quiet for it.
 		warnedMissing.add(out.strong);
 		warnedMissing.add(lastStrong);
 		const next = strongCandidates(lastStrong, unusable).find((candidate) => find(ctx, STRONG_MODELS[candidate].id));
 		const why = out.kind === "routing" ? "no endpoint under the routing rules" : "the request was rejected";
-		tell(
-			ctx,
-			`${strongName(out.strong)} failed, ${why} (${shortError(failed.errorMessage)}); using ${next ? strongName(next) : "DeepSeek V4.1 Flash"} instead until Pi restarts or /strong ${out.strong}`,
-		);
-		return true;
+		const error = shortError(failed.errorMessage);
+		tell(ctx, `${strongName(out.strong)} failed, ${why} (${error}); using ${next ? strongName(next) : "DeepSeek V4.1 Flash"} instead until Pi restarts or /strong ${out.strong}`);
+		return { ruledOut: out.strong, kind: out.kind, tookOver: next ?? "flash", error };
 	}
 
 	const selected = (ctx: ExtensionContext) => ctx.model?.provider === ROUTER_PROVIDER && ctx.model?.id === ROUTER_ID;
@@ -119,10 +121,19 @@ export default function (pi: ExtensionAPI) {
 		lastFailure = undefined;
 		if (event.outcome !== "error" || !failure || !selected(ctx)) return undefined;
 		// Each continuation rules one more model out, so this ends after at most two rounds.
-		if (!ruleOut(ctx, failure)) return undefined;
+		const fallback = ruleOut(ctx, failure);
+		if (!fallback) return undefined;
 		failingOver = true;
-		// Drop the failed attempt from the model's context, as Pi does for its own retries.
-		return { entries: [...event.entries, { type: "context_edit" as const, targetId: failure.entryId, replacement: null }], continue: true };
+		// Drop the failed attempt from the model's context, as Pi does for its own retries, and
+		// record the fallback for the session report.
+		return {
+			entries: [
+				...event.entries,
+				{ type: "context_edit" as const, targetId: failure.entryId, replacement: null },
+				{ type: "custom" as const, customType: FALLBACK_ENTRY, data: fallback },
+			],
+			continue: true,
+		};
 	});
 	pi.on("agent_settled", () => {
 		failingOver = false;
@@ -209,9 +220,9 @@ export default function (pi: ExtensionAPI) {
 				const { model, message, thinkingLevel } = request.failed;
 				// Rate limits and overload: same model. A strong model that has no endpoint or
 				// rejects the request is ruled out, and the stored state decides again below.
-				if (!ruleOut(ctx, { provider: model.provider, modelId: model.id, errorMessage: message.errorMessage })) {
-					return { model, thinkingLevel: thinkingLevel ?? "high" };
-				}
+				const fallback = ruleOut(ctx, { provider: model.provider, modelId: model.id, errorMessage: message.errorMessage });
+				if (!fallback) return { model, thinkingLevel: thinkingLevel ?? "high" };
+				pi.appendEntry(FALLBACK_ENTRY, fallback);
 			}
 
 			/**
