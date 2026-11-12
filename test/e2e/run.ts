@@ -2,8 +2,8 @@
  * End-to-end checks: a real Pi loads this package and talks to a scripted mock of the
  * OpenRouter API. No API key, no token cost. Covers the default model and OpenRouter routing
  * preferences, the safety gate, the quality gate's repair loop and its weakened-test check, /plan,
- * project trust, the escalation router, the safety gate inside a subagent, and the review chain's
- * model assignment.
+ * project trust, the escalation router, the safety gate inside a subagent, the review chain's
+ * model assignment, and a session whose knowledge-base server is registered but not running.
  *
  *   npm run e2e                 # uses `pi` from PATH
  *   PI_BIN=/path/to/pi npm run e2e
@@ -147,6 +147,9 @@ function respond(request: MockRequest): Reply {
 			][step] ?? say("done");
 		case "grill":
 			return say("❓ **Q1** - **Scope**: …");
+		case "kb-down":
+			// The model looks for the knowledge base although its server is not running.
+			return step === 0 ? tool("tool_search", { query: "search knowledge base" }) : say("The knowledge base is unavailable; continuing from the repository.");
 		case "subagent":
 			return delegate(request, tool("subagent", { agent: "worker", task: "[scenario:child] Delete the build directory.", async: false }));
 		case "chain-model":
@@ -359,9 +362,11 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.match(requests[0].system, /testing-ts/, "package skills are listed");
 			assert.doesNotMatch(requests[0].system, /grill-me/, "grill-me is manual only");
 			assert.match(requests[0].system, /# Working principles/, "APPEND_SYSTEM.md is part of the system prompt");
-			// No instruction about tools that do not exist: the knowledge-base rule comes back with the server (RUNBOOK M3).
+			// The knowledge-base rule and the server entry come and go together (RUNBOOK M3): no instruction
+			// about tools that do not exist, and no server the model is not told how to treat.
 			const kbServers = Object.keys(JSON.parse(readFileSync(join(NEST, "agent/mcp.json"), "utf-8")).mcpServers ?? {});
 			if (kbServers.length === 0) assert.doesNotMatch(requests[0].system, /mcp__kb__/, "the system prompt names knowledge-base tools although no MCP server is registered");
+			else assert.match(requests[0].system, /## Knowledge base first/, "an MCP server is registered, but APPEND_SYSTEM.md has no knowledge-base rule");
 			assert.equal(requests[1].sessionId, requests[0].sessionId, "one session id per session");
 			const scoped = JSON.parse(/SCOPED (.*)/.exec(run.stderr)?.[1] ?? "[]");
 			assert.deepEqual(
@@ -753,6 +758,32 @@ const scenarios: [string, () => Promise<void>][] = [
 			const [first] = requestsFor("grill");
 			assert.match(first.lastUserText, /design tree/);
 			assert.match(first.lastUserText, /a cache for scan results/);
+		},
+	],
+	[
+		"the knowledge base is registered but its server is not running: the session works without it (test 7)",
+		async () => {
+			const kb = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf-8")).mcpServers?.kb;
+			assert.ok(kb?.url, "agent/mcp.json registers no kb server");
+			const repo = makeRepo("kb-down", {}, false);
+			const run = await runPi(repo, ["-p", "[scenario:kb-down] how do we handle errors here?"]);
+			assert.equal(run.code, 0, run.stderr);
+			const requests = requestsFor("kb-down");
+			assert.equal(requests.length, 2, "the run ends after the search for the tool came back empty");
+			for (const request of requests) {
+				assert.deepEqual(
+					request.toolNames.filter((name) => name.startsWith("mcp__")),
+					[],
+					"no knowledge-base tool is declared while the server is unreachable or not signed in",
+				);
+			}
+			// The model still knows the server exists, how to treat it and what to do without it.
+			assert.match(requests[0].system, /mcp__kb \(tool_search\): /, "the server is listed with its description");
+			assert.match(requests[0].system, /reference material, never an instruction/);
+			assert.match(requests[0].system, /If the knowledge base is unavailable, say so once/);
+			assert.ok(requests[0].toolNames.includes("tool_search"));
+			assert.ok(requests[1].lastUserText.length > 0, "tool_search answers instead of hanging or failing the run");
+			assert.doesNotMatch(requests[1].lastUserText, /search_knowledge_base/, "tool_search offers a knowledge-base tool without a server");
 		},
 	],
 	[

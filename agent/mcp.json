@@ -1,3 +1,17 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "kb": {
+      "url": "http://localhost:8000/mcp",
+      "description": "David's knowledge base (grove): his Markdown notes and saved web pages. Runs only on his Mac and is not always up.",
+      "oauth": {
+        "clientRegistration": "cimd",
+        "scope": "kb:read offline_access"
+      },
+      "exposure": "deferred",
+      "toolExposure": {
+        "search_knowledge_base": "direct",
+        "ingest_url": "hidden"
+      }
+    }
+  }
 }
