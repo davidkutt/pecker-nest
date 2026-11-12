@@ -20,6 +20,12 @@ const HEAD = spawnSync("git", ["-C", NEST, "rev-parse", "HEAD"], { encoding: "ut
 const PI_VERSION = JSON.parse(readFileSync(join(NEST, "package.json"), "utf-8")).devDependencies["@earendil-works/pi-coding-agent"] as string;
 const SECRET = "sk-or-interactive-secret";
 
+/** What \`pi mcp list --json\` prints for the knowledge base in a given state. */
+function mcpList(state: string, extra: Record<string, unknown> = {}): string {
+	const tools = state === "connected" ? ["search_knowledge_base", "get_document", "list_sources", "ingest_url"] : [];
+	return JSON.stringify({ servers: [{ name: "kb", scope: "global", enabled: true, exposure: "deferred", transport: "http://localhost:8000/mcp", state, tools, ...extra }], errors: [] });
+}
+
 const dirs: string[] = [];
 after(() => {
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
@@ -33,6 +39,11 @@ case "$1" in
     [[ "$*" == "auth check --provider openrouter" ]] || { echo "pi stub: unexpected $*" >&2; exit 2; }
     if [[ "$STUB_PI_LOGIN" == 1 || -n "\${OPENROUTER_API_KEY:-}" ]]; then echo ready; exit 0; fi
     echo not_ready; exit 1 ;;
+  mcp)
+    [[ "$*" == "mcp list --json" ]] || { echo "pi stub: unexpected $*" >&2; exit 2; }
+    printf '%s\\n' "$*" >> "$STUB_DIR/pi-mcp-calls"
+    echo "$STUB_PI_MCP"
+    [[ "$STUB_PI_MCP" == *'"state":"connected"'* ]]; exit ;;
   --list-models)
     echo "provider    model    context  max-out  thinking  images"
     echo "anthropic   $STUB_FOREIGN_MODEL    200K  64K  yes  yes"
@@ -100,6 +111,7 @@ function doctor(options: Options = {}) {
 		STUB_PI_LOGIN: "1",
 		STUB_PI_MODELS: `${FLASH} ${GLM} ${KIMI}`,
 		STUB_FOREIGN_MODEL: "claude-x",
+		STUB_PI_MCP: mcpList("connected"),
 		STUB_NODE_VERSION: "v22.18.0",
 		STUB_PNPM_VERSION: "10.34.9",
 		STUB_DOCKER_UP: "1",
@@ -120,6 +132,7 @@ function doctor(options: Options = {}) {
 	const securityCalls = existsSync(join(dir, "security-calls")) ? readFileSync(join(dir, "security-calls"), "utf-8") : "";
 	const dockerCalls = existsSync(join(dir, "docker-calls")) ? readFileSync(join(dir, "docker-calls"), "utf-8") : "";
 	return {
+		dir,
 		status: result.status,
 		stdout: result.stdout,
 		stderr: result.stderr,
@@ -168,6 +181,7 @@ describe("scripts/doctor.sh", () => {
 			"credential: Pi is logged in to OpenRouter",
 			"credential: OPENROUTER_API_KEY is not exported",
 			"credential: Keychain item pecker-nest-container-key exists",
+			"knowledge base: kb answers at http://localhost:8000/mcp and Pi is signed in (4 tools)",
 			`model: openrouter/${FLASH} is in`,
 			`model: openrouter/${GLM} is in`,
 			`model: openrouter/${KIMI} is in`,
@@ -272,6 +286,36 @@ describe("scripts/doctor.sh", () => {
 		// No Keychain at all (Linux): a warning either way, with the variable that replaces it.
 		assert.match(doctor({ without: ["security"] }).line("credential: no Keychain"), /^WARN .*Fix: set PROBE_OPENROUTER_API_KEY /);
 		assert.match(doctor({ args: ["--docker"], without: ["security"] }).line("credential: no Keychain"), /^WARN .*Fix: set PI_RUN_OPENROUTER_API_KEY /);
+	});
+
+	it("never fails because of the knowledge base: a warning with the fix when grove is down, not signed in or switched off", () => {
+		const down = doctor({ env: { STUB_PI_MCP: mcpList("failed", { error: "fetch failed" }) } });
+		assert.equal(down.status, 0, down.stdout);
+		assert.match(
+			down.line("knowledge base:"),
+			/^WARN {2}knowledge base: kb does not answer at http:\/\/localhost:8000\/mcp \(grove is not running\); sessions work without it\. Fix: cd .*\/dev\/pecker-grove && pnpm stack:up && pnpm dev, then \/mcp reconnect kb /,
+		);
+		assert.match(doctor({ env: { STUB_PI_MCP: mcpList("failed"), GROVE_DIR: "/somewhere/grove" } }).line("knowledge base:"), /Fix: cd \/somewhere\/grove && pnpm stack:up /);
+
+		const signedOut = doctor({ env: { STUB_PI_MCP: mcpList("needs-auth") } });
+		assert.equal(signedOut.status, 0, signedOut.stdout);
+		assert.match(signedOut.line("knowledge base:"), /^WARN .*but Pi is not signed in; sessions work without it\. Fix: pi mcp login kb$/);
+
+		const cases: [string, RegExp][] = [
+			[mcpList("connected", { enabled: false }), /^WARN .*kb is switched off in Pi's mcp\.json.*Fix: /],
+			[JSON.stringify({ servers: [], errors: [] }), /^WARN .*has no kb server.*Fix: .*scripts\/link\.sh$/],
+			["pi: something went wrong", /^WARN .*gave no readable answer\. Fix: run pi mcp list /],
+			["", /^WARN .*gave no readable answer\. Fix: /],
+		];
+		for (const [answer, expected] of cases) {
+			const run = doctor({ env: { STUB_PI_MCP: answer } });
+			assert.equal(run.status, 0, run.stdout);
+			assert.match(run.line("knowledge base:"), expected);
+		}
+
+		// Pi missing is a failure of its own line; the knowledge-base line stays a warning.
+		assert.match(doctor({ without: ["pi"] }).line("knowledge base:"), /^WARN {2}knowledge base: not checked, pi or node is missing\. Fix: /);
+		assert.equal(readFileSync(join(down.dir, "pi-mcp-calls"), "utf-8").trim(), "mcp list --json", "one read-only call");
 	});
 
 	it("fails for a missing Flash or GLM, warns for a missing Kimi", () => {
