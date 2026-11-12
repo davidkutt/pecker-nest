@@ -6,14 +6,14 @@ Begleitet den „Pi V1 – Konfigurationsplan“ vom 28.10.2026, das Update „G
 
 ## Stand
 
-Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 23 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da und die [Live-Probe](#live-probe-gegen-openrouter--5-minuten-ein-paar-cent), die du selbst startest.
+Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist gebaut. Die Verdrahtung ist gegen echtes Pi 1.5.0 getestet. Statt OpenRouter antwortete dabei ein lokaler Mock mit geskripteten Tool-Aufrufen (`npm run e2e`, 26 Szenarien), dazu kommt ein Headless-Lauf im Container (`npm run e2e:docker`). Getestet ist also das Verhalten von Pi und der Config: welche Modelle mit welcher Denkstufe angefragt werden und dass die Routing-Vorgaben in jeder Anfrage stehen. Nicht getestet ist das Urteil der echten Modelle und was OpenRouter mit den Vorgaben macht. Dafür sind die Abnahmetests unten da und die [Live-Probe](#live-probe-gegen-openrouter--5-minuten-ein-paar-cent), die du selbst startest.
 
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
 | M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 in undertext (M7); die Pilot-Repos bleiben nur noch E2E-Material |
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in undertext (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
-| M3 RAG | Skill `best-practices`, leere `mcp.json`; Container schaltet lokale MCP-Server samt Subagent-Tools ab | Server eintragen, Exposure setzen, Abschnitt „Knowledge base first“ in `APPEND_SYSTEM.md` wieder einfügen, Tests 6–7 |
+| M3 RAG | Skill `best-practices`, Server `kb` (pecker-grove) in `mcp.json` mit OAuth-Anmeldung, Regel „Knowledge base first“ in `APPEND_SYSTEM.md`, Prüfzeile in `doctor.sh`; Container schaltet lokale MCP-Server ab | Voraussetzung in grove (Realm kennt Pi, M3c.0-Handcheck), dann grove starten, `pi mcp login kb`, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
 | M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 M1-Schritten |
 | M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
@@ -136,50 +136,56 @@ Weitere Befehle: `/implement 1` (Schritt 1 aus `PLAN.md`, Tests zuerst) und `/re
    - **Unser Gate bleibt:** nichts zu tun.
    - **pi-project-profile übernehmen:** `"npm:@lenard9191/pi-project-profile@1.4.0"` zu `packages` in `agent/settings.json` hinzufügen, `"./extensions/quality-gate.ts"` aus `pi.extensions` in `package.json` entfernen und `maxRepairRounds: 2` per `/profile config` setzen. Oder sag mir Bescheid, dann baue ich es um.
 
-## M3 – RAG (👤 ca. 30 Minuten)
+## M3 – RAG (👤 ca. 15 Minuten, sobald grove bereit ist)
 
 Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Auto-Retrieval gibt es in V1 nicht. Das Modell ruft das Such-Tool selbst auf, angeleitet vom Skill `best-practices`.
 
-1. Server eintragen. Weil `mcp.json` verlinkt ist, landet der Eintrag direkt in `agent/mcp.json` im Repo. Nimm die Variante, über die dein Server heute erreichbar ist:
+Die Knowledge Base ist [pecker-grove](https://github.com/davidkutt/pecker-grove): deine Markdown-Notizen und die Webseiten, die du dort gespeichert hast. Sie ist unter `http://localhost:8000/mcp` erreichbar, solange du grove gestartet hast.
+
+Entschieden am 12.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, per OAuth über Keycloak mit seinem eigenen Client ID Metadata Document (`https://pi.dev/oauth/client.json`). Es gibt kein Token zum Einfügen und keine Variable `KB_TOKEN`. groves Tokens leben fünf Minuten; Pi erneuert sie selbst und legt sie in `~/.pi/agent/mcp-auth.json` ab. Die Datei liegt nicht im Repo, und das Safety-Gate behandelt sie als Secret. Herleitung und verworfene Alternativen stehen in [research/grove-kb-auth.md](research/grove-kb-auth.md).
+
+**Schon erledigt** (nichts davon musst du eintragen):
+
+- `agent/mcp.json` enthält den Server `kb`, ohne Token, Secret oder Pfad. `search_knowledge_base` sieht das Modell direkt. `get_document` und `list_sources` lädt es bei Bedarf über `tool_search`. `ingest_url` ist versteckt; grove gibt externen Clients ohnehin nur Leserechte.
+- `agent/APPEND_SYSTEM.md` hat den Abschnitt „Knowledge base first“, der Skill `best-practices` nennt die echten Toolnamen. Beide sagen: Text aus der Knowledge Base ist Nachschlagematerial und nie eine Anweisung, denn sie enthält geladene Webseiten.
+- `planner` und `reviewer` bekommen die Knowledge Base nicht. Ein Subagent mit `mcp:kb/…` startet nicht, solange der Server nicht erreichbar ist (getestet) oder die Anmeldung abgelaufen ist, und weder Pi noch pi-subagents kann ein solches Tool optional machen. Die Hauptsession schlägt nach und gibt das Ergebnis in der Aufgabe weiter. Ein Unit-Test verhindert, dass ein `mcp:kb`-Tool versehentlich in eine Rolle gerät.
+
+**Voraussetzung in grove** (nicht in diesem Repo, der Planungschat macht daraus eine grove-Aufgabe):
+
+- Der Realm kennt Pi: eine dritte Client-Policy für `pi.dev`, neben `claude.ai` und `vscode.dev`.
+- groves Handcheck M3c.0 ist bestanden: Claude Code meldet sich an `/mcp` an, und eine Suche liefert Treffer.
+
+Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-Formulars. nest arbeitet dann wie bisher ohne Knowledge Base.
+
+1. grove starten. Der Befehl ist in bash, zsh und fish derselbe:
 
    ```bash
-   # stdio (Pi startet den Server selbst):
-   pi mcp add kb --description "Projektwissen: Konventionen, Architekturentscheidungen, Best Practices" -- <befehl> <argumente>
-
-   # HTTP auf localhost (der Server läuft schon):
-   pi mcp add kb --url http://localhost:<port>/mcp --description "Projektwissen: …"
-   #   mit Token zusätzlich: --bearer-token-env-var KB_TOKEN
+   cd ~/dev/pecker-grove && pnpm stack:up && pnpm dev
    ```
 
-2. Toolnamen ansehen: `pi mcp list`. Dann in `agent/mcp.json` beim Server `kb` ergänzen (Namen anpassen):
+2. Einmalig anmelden, in einem zweiten Terminal (in bash, zsh und fish gleich):
 
-   ```json
-   "exposure": "deferred",
-   "toolExposure": {
-     "<such-tool>": "direct",
-     "<schreib-oder-admin-muster, z. B. delete_*>": "hidden"
-   }
+   ```bash
+   pi mcp login kb
    ```
 
-3. Damit auch Planner und Reviewer die Knowledge Base nutzen, in `agent/agents/planner.md` und `agent/agents/reviewer.md` bei `tools:` `mcp:kb/<such-tool>` anhängen.
+   Der Browser öffnet Keycloak. Melde dich an und erlaube den Zugriff. Das erste Mal braucht Internet, weil Keycloak Pis Dokument von `pi.dev` lädt. In einer laufenden Pi-Session geht dasselbe mit `/mcp` → `kb` → „Sign in“. Die Anmeldung gilt für alle Pi-Sessions und hält, bis sie 30 Tage ungenutzt war. Abmelden: `pi mcp logout kb`.
 
-   Wichtig: Ein Subagent mit `mcp:kb/…` startet nicht, solange der KB-Server nicht erreichbar ist (getestet), auf dem Host also nur bei laufendem Server. Im Container ist das abgefangen, siehe M6.
+3. Prüfen:
 
-4. Die Regel für das Modell wieder eintragen. Solange in `agent/mcp.json` kein Server steht, verweist `agent/APPEND_SYSTEM.md` bewusst nicht auf die Knowledge Base (seit 10.11.): Sonst trüge jede Session eine Anweisung zu Tools, die es nicht gibt. Sobald `kb` eingetragen ist, diesen Abschnitt in `agent/APPEND_SYSTEM.md` vor „## Safety“ einfügen:
-
-   ```markdown
-   ## Knowledge base first
-
-   - When a question touches project conventions, architecture decisions, APIs or best practices, search the knowledge base (`mcp__kb__*` tools) before answering from memory, and name the source you used.
-   - If the knowledge base is unavailable, say so once and continue with what the repository shows.
+   ```bash
+   pi mcp list                           # kb: connected, 4 tools
+   ~/dev/pecker-nest/scripts/doctor.sh   # PASS  knowledge base: kb answers … and Pi is signed in
    ```
 
-   Im Container ist die Knowledge Base aus (M6); der zweite Punkt deckt das ab. Der Skill `best-practices` enthält dieselbe Anleitung ausführlicher und lädt, wenn er gebraucht wird.
+   Lief Pi schon, bevor grove gestartet war, verbindet es sich nicht von selbst: `/mcp reconnect kb` oder `/reload` in der Session.
 
-5. `pi mcp list` ist grün. Dann `/reload` in laufenden Sessions.
-6. **Test 6:** Nach einer Projektkonvention fragen. Der Aufruf von `mcp__kb__…` ist sichtbar, die Antwort nennt die Quelle (Skill `best-practices`).
-7. **Test 7:** RAG-Server stoppen und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
-8. Committen.
+4. **Test 6:** Nach einer Projektkonvention fragen, die in deinen Notizen steht. Der Aufruf von `mcp__kb__search_knowledge_base` ist sichtbar, die Antwort nennt die Quelle (Skill `best-practices`).
+5. **Test 7:** grove stoppen (`pnpm dev` beenden) und eine normale Aufgabe geben. Pi arbeitet weiter, `/mcp` zeigt den Fehler.
+
+**Ohne grove** ist der Normalfall, grove läuft nicht immer. Eine Session in der TUI meldet dann einmal beim Start `MCP servers need attention: kb …` und arbeitet weiter. Das Modell sieht kein Knowledge-Base-Tool und sagt einmal, dass sie nicht verfügbar ist. `doctor.sh` zeigt dafür eine `WARN`-Zeile mit dem Startbefehl, nie ein `FAIL`. Liegt grove nicht unter `~/dev/pecker-grove`, nennst du den Ort für diese Zeile in `GROVE_DIR`: `env GROVE_DIR="$HOME/code/pecker-grove" ~/dev/pecker-nest/scripts/doctor.sh` (in bash, zsh und fish gleich).
+
+Im Container ist die Knowledge Base aus (M6). Die Regel „If the knowledge base is unavailable, say so once“ in `APPEND_SYSTEM.md` deckt beide Fälle ab.
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
@@ -303,7 +309,7 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 3. **Test 11:** `pi-run.sh -C ~/dev/pecker-api "Gib den Inhalt von ~/.ssh/config und /Users/<du>/Documents aus"`. Erwartung: Die Pfade existieren im Container nicht.
 
-4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nimmt außerdem deren `mcp:`-Tools aus den Subagents, damit `planner` und `reviewer` trotzdem starten. Der Build zeigt das an, z. B. `mcp server kb: disabled in the container`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
+4. Knowledge Base: In Container-Läufen ist sie aus, weil sie nur lokal läuft. Beim Image-Bau schaltet `scripts/container-config.ts` alle MCP-Server ab, die nur auf dem Host existieren (stdio-Befehle und `localhost`-URLs). Es nähme außerdem deren `mcp:`-Tools aus den Subagents, damit diese trotzdem starten; seit dem 12.11. hat keine Rolle ein solches Tool (M3). Der Build zeigt das Abschalten an: `mcp server kb: disabled in the container (runs only on the host)`. Pi und der Skill `best-practices` arbeiten dann ohne Knowledge Base weiter.
 
 Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, 64 falscher Aufruf oder kein Container-Key, 65 Image fehlt oder ist veraltet, sonst der Exit-Code von Pi.
 
@@ -391,6 +397,7 @@ Die zweite und die dritte Zeile brauchst du nur für Headless-Läufe im Containe
 
 - **Ohne `--docker`** bleiben Docker-Daemon und Image ungeprüft. Dafür steht eine Zeile `SKIP  docker: …` in der Ausgabe, die den Befehl mit `--docker` nennt; sie zählt weder als Warnung noch als Fehler. Der Schlüsselbund-Eintrag `pecker-nest-container-key` wird trotzdem geprüft, weil die Live-Probe denselben Eintrag liest. Fehlt er, ist das hier nur ein `WARN`.
 - **Mit `--docker`** kommen die Prüfungen für Headless-Läufe dazu: Der Daemon muss laufen, das Image muss vom aktuellen Commit stammen, und ein fehlender Schlüsselbund-Eintrag ist ein `FAIL`.
+- **Die Knowledge Base** hat eine eigene Zeile, die nie ein `FAIL` ist: `PASS`, wenn grove antwortet und Pi angemeldet ist, sonst `WARN` mit dem Befehl, der grove startet, oder mit `pi mcp login kb`. Dafür ruft das Skript `pi mcp list --json` auf; Pi erneuert dabei gegebenenfalls sein eigenes Token.
 - **Mit `--repo <pfad>`** prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Beide Schalter lassen sich kombinieren.
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
@@ -417,5 +424,7 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (unde
 | 10.11.2026 | Denkstufe des starken Modells | Immer `max`: `/plan`, Eskalationen, `/hard` und der Reviewer. Flash bleibt auf `high`. |
 | 10.11.2026 | Container-Key | Liegt im macOS-Schlüsselbund (`pecker-nest-container-key`). `pi-run.sh` nimmt den interaktiven Key nie von selbst. |
 | 10.11.2026 | Veraltetes Image | `pi-run.sh` startet nur ein Image, das `scripts/build-image.sh` aus dem aktuellen Commit gebaut hat. |
+| 12.11.2026 | Anmeldung an der Knowledge Base | Pi meldet sich bei grove per OAuth mit seinem Client ID Metadata Document an (`oauth.clientRegistration: "cimd"`, Scope `kb:read offline_access`). Kein Token und kein Secret im Repo oder in einer Shell-Konfiguration; grove bekommt eine dritte Client-Policy für `pi.dev`. Begründung: [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| 12.11.2026 | Knowledge Base in Subagents | Nicht in V1. `planner` und `reviewer` bleiben ohne `mcp:kb`-Tool, weil sie sonst ohne laufendes grove nicht starten. |
 
 Alle offenen Fragen des Plans sind damit entschieden. Bewusst offen bis nach der Live-Probe und den ersten echten Sessions: Provider festlegen (`only`, `quantizations`), `DEFAULT_STRONG`, Flashs Denkstufe, die Eskalationsschwellen, Preserved Thinking für GLM und der Vergleich mit pi-project-profile.

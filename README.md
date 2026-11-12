@@ -35,7 +35,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── models.json           OpenRouter provider routing: ZDR only, no data collection; Kimi K3.1 Pro
 │   │                         gets reasoning_content on replayed assistant messages
 │   ├── APPEND_SYSTEM.md      global working principles
-│   ├── mcp.json              MCP servers (knowledge base goes here)
+│   ├── mcp.json              MCP servers: kb, the knowledge base (pecker-grove on localhost; Pi signs in
+│   │                         through OAuth, no token in the file)
 │   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)
 │   └── prompts/              review-chain and its four steps
 ├── claude/skills/            Claude Code: /nest-supervise, /nest-handoff (linked by scripts/link.sh --claude)
@@ -46,7 +47,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
-│   │                         --docker adds the daemon and image checks for headless runs
+│   │                         --docker adds the daemon and image checks for headless runs; the knowledge
+│   │                         base only ever warns
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
