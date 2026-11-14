@@ -9,7 +9,8 @@
 # Every check prints one line that starts with PASS, WARN or FAIL; a WARN or FAIL line ends with
 # the fix. A SKIP line names checks that were left out and how to include them; it counts as
 # neither. Exit code 1 when any check failed, else 0. The script only reads: it changes nothing,
-# prints no secret and makes no request that costs tokens.
+# prints no secret and makes no request that costs tokens. One exception to "changes nothing": the
+# knowledge-base check connects through Pi, and Pi may refresh its own token for it.
 #
 # Runs under macOS bash 3.2 and is fine to call from fish.
 set -uo pipefail
@@ -207,6 +208,38 @@ elif [[ "$check_docker" == 1 ]]; then
   warn "credential: no Keychain on this system (no security tool), so the container key is not stored. Fix: set PI_RUN_OPENROUTER_API_KEY for each docker/pi-run.sh call"
 else
   warn "credential: no Keychain on this system (no security tool), so the key for the live probe is not stored. Fix: set PROBE_OPENROUTER_API_KEY for each scripts/probe-openrouter.ts call"
+fi
+
+# ------------------------------------------------------------------ knowledge base
+
+# Never a FAIL: the knowledge base (grove) runs only while David has started it, and sessions work
+# without it. `pi mcp list` connects with Pi's stored sign-in, so the answer is the one a session gets.
+grove_dir="${GROVE_DIR:-$HOME/dev/pecker-grove}"
+if ! have pi || ! have node; then
+  warn "knowledge base: not checked, pi or node is missing. Fix: install them, then run this again"
+else
+  kb="$(pi mcp list --json 2>/dev/null | node -e '
+    let text = "";
+    process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => {
+      try {
+        const kb = JSON.parse(text).servers.find((server) => server.name === "kb");
+        console.log(kb ? [kb.enabled === false ? "disabled" : kb.state, (kb.tools || []).length, kb.transport].join("|") : "missing");
+      } catch {
+        console.log("unreadable");
+      }
+    });' 2>/dev/null)"
+  kb_state="${kb%%|*}"
+  kb_rest="${kb#*|}"
+  kb_tools="${kb_rest%%|*}"
+  kb_url="${kb_rest#*|}"
+  case "$kb_state" in
+    connected) pass "knowledge base: kb answers at $kb_url and Pi is signed in ($kb_tools tools)" ;;
+    needs-auth) warn "knowledge base: kb answers at $kb_url, but Pi is not signed in; sessions work without it. Fix: pi mcp login kb" ;;
+    disabled) warn "knowledge base: kb is switched off in Pi's mcp.json; sessions work without it. Fix: in pi, /mcp, select kb, Enable" ;;
+    missing) warn "knowledge base: Pi's mcp.json has no kb server; sessions work without it. Fix: $nest_dir/scripts/link.sh" ;;
+    failed | connecting | disconnected | closed) warn "knowledge base: kb does not answer at $kb_url (grove is not running); sessions work without it. Fix: cd $grove_dir && pnpm stack:up && pnpm dev, then /mcp reconnect kb in a Pi session that is already open" ;;
+    *) warn "knowledge base: pi mcp list --json gave no readable answer. Fix: run pi mcp list and read its error" ;;
+  esac
 fi
 
 # ------------------------------------------------------------------ models

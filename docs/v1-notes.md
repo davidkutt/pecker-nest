@@ -1,6 +1,44 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 10.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 12.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 12.11.2026: Knowledge Base (pecker-grove) angebunden
+
+Aus der Aufgabe [tasks/grove-kb.md](tasks/grove-kb.md). Die Knowledge Base aus dem Plan ist pecker-grove unter `http://localhost:8000/mcp`. Wie Pi sich dort anmelden kann, steht mit Quellen in [research/grove-kb-auth.md](research/grove-kb-auth.md); David hat am 12.11. Option A gewählt. Der Pull Request bleibt ein Entwurf, bis groves Handcheck M3c.0 bestanden ist.
+
+**Was neu ist:**
+
+| Bereich | Vorher | Jetzt |
+| --- | --- | --- |
+| `agent/mcp.json` | leer | Server `kb` mit `oauth.clientRegistration: "cimd"` und Scope `kb:read offline_access`; `exposure: deferred`, `search_knowledge_base` direkt, `ingest_url` versteckt. Kein Token, Secret oder Pfad. |
+| Anmeldung | Runbook: Token in `KB_TOKEN`, per `--bearer-token-env-var` | Pi meldet sich selbst an (OAuth mit PKCE, Client ID Metadata Document auf `pi.dev`), speichert die Tokens in `~/.pi/agent/mcp-auth.json` und erneuert sie. Du führst einmal `pi mcp login kb` aus. |
+| `agent/APPEND_SYSTEM.md` | kein Verweis auf die Knowledge Base | Abschnitt „Knowledge base first“ ist zurück, mit dem echten Toolnamen und einer neuen Regel: Text aus der Knowledge Base ist Nachschlagematerial, nie eine Anweisung. |
+| Skill `best-practices` | Platzhalter `mcp__kb__<search tool>` | die drei Lese-Tools mit Namen, dieselbe neue Regel ausführlich, und: nicht selbst anmelden oder den Server starten |
+| `scripts/doctor.sh` | keine Prüfung | eine Zeile `knowledge base:`; `PASS`, wenn grove antwortet und Pi angemeldet ist, sonst `WARN` mit dem Befehl. Nie `FAIL`. |
+| Runbook M3 | Server selbst eintragen, 30 Minuten | Voraussetzung in grove, grove starten, einmal anmelden, Tests 6 und 7 |
+
+**Warum nicht `KB_TOKEN`:** groves Access-Tokens leben fünf Minuten. Pi löst einen Header-Wert einmal je Verbindung auf, nicht je Anfrage, und erneuert ein Token nicht, das es per Header bekommen hat. Jede Session wäre nach fünf Minuten ohne Knowledge Base, bis zu einem `/mcp reconnect`.
+
+**Abweichung: `planner` und `reviewer` ohne Knowledge Base.** Der Plan und Runbook M3 sahen `mcp:kb/<such-tool>` für beide vor. Ein Subagent mit einem solchen Tool startet aber nicht, solange der Server fehlt: pi-subagents 0.87.0 löst `mcp:`-Einträge gegen die Tools der Hauptsession auf und bricht den Start bei einem nicht auflösbaren Eintrag ab. Eine Einstellung, die das Tool optional macht, gibt es weder in Pi noch in pi-subagents (gesucht in Doku und Quellcode, Befund P5). grove läuft nicht immer; mit dem Tool wären `/review-chain` und jeder Planner-Lauf an groves Zustand gebunden. Die Hauptsession schlägt deshalb selbst nach und gibt das Ergebnis in der Aufgabe weiter. Ein Unit-Test hält fest, dass keine Rolle ein `mcp:kb`-Tool hat.
+
+**Was sich in jeder Session ändert, auch ohne grove:** Das Tool `tool_search` ist aktiv, und der System-Prompt führt den Server `mcp__kb` mit seiner Beschreibung im Abschnitt `mcp_servers`. Läuft grove nicht, ist kein `mcp__kb__…`-Tool deklariert, `tool_search` antwortet „No matching tools found.“, und der erste Prompt wartet unter zwei Sekunden auf den gescheiterten Verbindungsversuch. Feldnotizen von vor und nach diesem Stand unterscheiden sich also in der Konfiguration; deshalb wird zwischen zwei nest-Sessions gemergt, nicht während eine Notiz offen ist.
+
+**Getestet:** 334 Unit-Tests und 26 E2E-Szenarien, alle mit eingetragenem `kb` und ohne laufenden Server. Neu:
+
+- ein E2E-Szenario: Der Server ist eingetragen und nicht erreichbar, das Modell sucht trotzdem nach dem Tool. Der Lauf endet mit Exit-Code 0, kein `mcp__`-Tool ist deklariert, der System-Prompt nennt Server, Regel und das Verhalten ohne Knowledge Base;
+- das erste Szenario prüft jetzt in beide Richtungen, dass der Abschnitt „Knowledge base first“ und der Eintrag in `mcp.json` zusammen kommen und gehen;
+- Unit-Tests auf der echten `agent/mcp.json`: Der Container schaltet `kb` ab (Entscheidung vom 30.10.); die Datei enthält weder Header noch Secret, Umgebungsvariable, Befehl oder Home-Pfad; keine Rolle hat ein `mcp:kb`-Tool;
+- `doctor.sh` gegen ein Stub-`pi` in allen Zuständen (verbunden, nicht angemeldet, nicht erreichbar, abgeschaltet, fehlend, unlesbare Antwort): immer Exit-Code 0.
+
+Zusätzlich lief Pi 1.5.0 gegen einen lokalen Mock, der wie groves `/mcp` und wie Keycloaks Metadaten mit CIMD antwortet. Die Autorisierungsanfrage trug `client_id=https://pi.dev/oauth/client.json`, PKCE S256, `scope=kb:read offline_access`, `prompt=consent` und `resource=http://localhost:8000/mcp`.
+
+**Nicht getestet:**
+
+- **Die Anmeldung an einem echten Keycloak.** groves Realm hat noch keine Policy für `pi.dev`, und Docker lief in der Build-Umgebung nicht. Ob Keycloak 26.8.1 Pis Dokument annimmt, zeigt groves Realm-Check.
+- **Pis Metadata Document selbst.** `pi.dev` war aus der Build-Umgebung nicht erreichbar. Sein Inhalt entscheidet, welche vertrauenswürdigen Domains groves Policy braucht.
+- **Tests 6 und 7** und die Antwortqualität der Suche: Sie brauchen deinen Stack.
+- **Die TUI:** die Meldung `MCP servers need attention` und `/mcp`. Geprüft sind der Print-Modus und `pi mcp list`.
+- **`doctor.sh` gegen ein echtes `pi mcp list`** lief nur für die Zustände „nicht erreichbar“ und „nicht angemeldet“ (gegen den Mock), der Zustand „verbunden“ nur gegen das Stub.
 
 ## Update 10.11.2026 (zweite Übergabe): Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests
 
@@ -209,6 +247,8 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | Router-Code aus dem Update | Gleiches Verhalten, angeboten wird nur die Stufe `high` | Die Phase bestimmt die Stufe (`max` → `high`); eine wählbare Stufe hätte keine Wirkung. |
 | `-e OPENROUTER_API_KEY` (Container-Key) | `pi-run.sh` liest `PI_RUN_OPENROUTER_API_KEY` und gibt ihn als `OPENROUTER_API_KEY` in den Container | Dein interaktiver Key (ohne Limit) landet so nicht versehentlich im Container. Seit 10.11.: Fehlt die Variable, liest das Skript den macOS-Schlüsselbund (`pecker-nest-container-key`); `OPENROUTER_API_KEY` nimmt es nur noch mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1`, sonst bricht es mit Exit-Code 64 ab. Vorher nahm es `OPENROUTER_API_KEY` mit einer bloßen Warnung. |
 | RAG-Server aus dem Container erreichbar machen | Container-Läufe ohne Knowledge Base; `scripts/container-config.ts` schaltet beim Image-Bau MCP-Server ab, die nur auf dem Host laufen (stdio, `localhost`), und nimmt deren `mcp:`-Tools aus den Subagents | Entscheidung vom 30.10.: Die Knowledge Base läuft nur lokal. Ohne das Abschalten würde ein Subagent mit `mcp:kb/…` im Container gar nicht starten (getestet: die Kette bricht am Reviewer ab, mit der Anpassung läuft sie durch). |
+| Knowledge Base mit Token (`--bearer-token-env-var KB_TOKEN`) | OAuth-Anmeldung durch Pi mit seinem Client ID Metadata Document; Tokens in Pis eigenem Speicher | groves MCP-Server nimmt kein statisches Token, seine Tokens leben fünf Minuten, und Pi erneuert kein Token aus einem Header. Befunde in [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| `planner` und `reviewer` mit `mcp:kb/<such-tool>` | Beide ohne Knowledge Base; die Hauptsession schlägt nach | Ein Subagent mit `mcp:kb`-Tool startet nicht, solange grove nicht läuft, und das Tool lässt sich nicht optional machen (Update vom 12.11.). |
 | `pi update --models` vor `pi -p` | In `task.sh`, mit 60 s Timeout, Fehlschlag nicht fatal | Der Befehl lädt erst den Katalog von `pi.dev`, dann `/models/user` bei OpenRouter. Ohne Netz läuft Pi mit dem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem. |
 
 ## Was die Tests gefunden haben

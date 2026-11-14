@@ -214,7 +214,7 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und 
 
 1. **Dogfooding:** [Runbook](RUNBOOK.md), M7: undertext M1 mit nest bauen, Claude Code begleitet und schreibt Übergaben. Die Abnahmetests 1–13 laufen dabei mit.
 2. **Router verstehen:** Runbook, M5. `router/escalate` ist schon Standard.
-3. **Knowledge Base eintragen:** Runbook, M3. Das geht mit `pi mcp add kb …`.
+3. **Knowledge Base nutzen:** Runbook, M3. Der Server `kb` (pecker-grove) ist schon eingetragen; du startest grove und meldest dich einmal mit `pi mcp login kb` an.
 
 ## Häufige Probleme
 
@@ -225,6 +225,7 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und 
 | „No endpoints found …“ beim Senden | Mit ZDR und `require_parameters` bleibt kein Provider übrig. Beim starken Modell weicht der Router selbst auf GLM 5.3 oder Flash aus und sagt es. Runbook, Abschnitt „Wenn Anfragen scheitern“. |
 | „gate.json ignored: this project is not trusted“ | In dem Repo `/trust` ausführen. |
 | Ein Befehl wird mit „Blocked by safety-gate“ abgelehnt | Absicht. Wenn du ihn wirklich willst, führ ihn selbst aus: `!befehl` in Pi oder im Terminal. |
+| Beim Start: „MCP servers need attention: kb …“ | Die Knowledge Base (pecker-grove) läuft nicht oder Pi ist dort nicht angemeldet. Pi arbeitet ohne sie weiter. `~/dev/pecker-nest/scripts/doctor.sh` nennt in der Zeile `knowledge base:` den passenden Befehl; Runbook, M3. |
 | `pi-run.sh`: „error: no container key …“ | Der Container-Key fehlt im Schlüsselbund (Schritt 6). Ein exportierter `OPENROUTER_API_KEY` zählt absichtlich nicht. |
 | `pi-run.sh`: „image pecker-nest-pi is stale …“ | Das Image stammt nicht vom aktuellen Commit, hat kein Label (mit `docker build` von Hand gebaut) oder wurde mit uncommitteten Änderungen gebaut. `~/dev/pecker-nest/scripts/build-image.sh` ausführen; liegt es an `agent/settings.json`, vorher `git checkout agent/settings.json`. Bewusst trotzdem starten: `env PI_RUN_ALLOW_STALE_IMAGE=1 …/pi-run.sh …`. |
 | `pi-run.sh` meldet `models exit: 1` | Die Modellliste ließ sich nicht laden (keine Verbindung zu `pi.dev` oder `openrouter.ai`). Der Lauf geht mit Pis eingebautem Katalog weiter. |
