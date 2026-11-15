@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +79,20 @@ exit 44
 `,
 };
 
+/**
+ * The system tools from /usr/bin and /bin, linked into one directory without the programs the
+ * stubs stand in for. macOS ships /usr/bin/security, so with /usr/bin itself on PATH a test that
+ * leaves the `security` stub out would reach the real Keychain instead of finding no Keychain.
+ */
+const SYSTEM = mkdtempSync(join(tmpdir(), "nest-doctor-system-"));
+dirs.push(SYSTEM);
+for (const source of ["/usr/bin", "/bin"]) {
+	for (const name of readdirSync(source)) {
+		if (name in STUBS || existsSync(join(SYSTEM, name))) continue;
+		symlinkSync(join(source, name), join(SYSTEM, name));
+	}
+}
+
 interface Options {
 	env?: Record<string, string>;
 	/** Stub tools to leave out, so the tool is "not installed". */
@@ -101,8 +115,9 @@ function doctor(options: Options = {}) {
 		chmodSync(join(bin, name), 0o755);
 	}
 	const env = {
-		// Only the stubs and the system tools: the real pi, pnpm and uv are not on this PATH.
-		PATH: `${bin}:/usr/bin:/bin`,
+		// Only the stubs and the system tools: the real pi, node, pnpm, uv, docker and security are
+		// not on this PATH.
+		PATH: `${bin}:${SYSTEM}`,
 		HOME: dir,
 		USER: "tester",
 		STUB_DIR: dir,

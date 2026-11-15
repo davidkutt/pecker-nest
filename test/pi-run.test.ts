@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -230,7 +230,9 @@ describe("docker/pi-run.sh stale image", () => {
 describe("scripts/build-image.sh", () => {
 	/** A scratch repository with a copy of the script; `docker build` only records its arguments. */
 	function scratchRepo() {
-		const dir = mkdtempSync(join(tmpdir(), "nest-build-image-"));
+		// The script names its own directory with `pwd -P`; on macOS tmpdir() is under /var, a symlink
+		// to /private/var, so compare against the resolved path.
+		const dir = realpathSync(mkdtempSync(join(tmpdir(), "nest-build-image-")));
 		dirs.push(dir);
 		const repo = join(dir, "repo");
 		mkdirSync(join(repo, "scripts"), { recursive: true });

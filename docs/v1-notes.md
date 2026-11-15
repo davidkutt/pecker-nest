@@ -1,6 +1,20 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 15.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 15.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Nachtrag 15.11.2026: Übergabe vom 10.11. auf dem Mac nachgeprüft
+
+Beide Übergaben vom 10.11. sind mit PR #4 und #5 umgesetzt; gebaut und getestet wurde damals in einer Linux-Umgebung ohne Docker. Auf Davids Mac (macOS, Bash 3.2.57, Node 24.22, Docker Desktop 29.8.2) gegen den Stand `593310d` nachgeprüft, Punkt für Punkt gegen die „Done when“-Kriterien der Übergabe:
+
+- **`npm run check`:** 3 von 334 Unit-Tests scheiterten, nur auf macOS und nur an den Tests, nicht an den Skripten.
+  - `build-image.sh` nennt sein Verzeichnis mit `pwd -P`; `tmpdir()` liegt unter `/var`, einem Symlink auf `/private/var`. Der Test vergleicht jetzt mit dem aufgelösten Pfad.
+  - `doctor.test.ts` hatte `/usr/bin` im `PATH`, und dort liegt auf macOS das echte `security`. Der Fall „kein Schlüsselbund“ fragte so den echten Schlüsselbund (nur nach Existenz, Konto `tester`), statt kein Werkzeug zu finden. Die Tests verlinken die Systemwerkzeuge jetzt in ein eigenes Verzeichnis, ohne die Programme, für die es Stubs gibt.
+- **`npm run e2e`:** 26 Szenarien grün, vorher wie nachher.
+- **`npm run e2e:docker`:** zum ersten Mal mit dem unveränderten `Dockerfile.pi` gebaut (`scripts/build-image.sh`) und grün, auf Docker Desktop mit `--network host`. PR #4 hatte eine Variante ohne `apt-get` und uv gebaut.
+- **`pi-run.sh` von Hand:** Ein Image von einem älteren Commit endet mit Exit-Code 65 und dem Befehl zum Neubau. Ohne Key (Schlüsselbund-Eintrag fehlt, echtes `security`) endet es mit Exit-Code 64 und dem Schlüsselbund-Befehl.
+- **Doku:** Runbook M7, die Stand-Tabelle und der Setup-Guide nannten noch undertext M1 als erstes Projekt. Jetzt steht dort pecker-grove M3c.2, danach undertext, sobald M2 geschrieben ist (Entscheidung vom 08.11., neu in „Entschieden“). Diesen Teil hatte PR #4 ausgelassen.
+
+**Weiter nicht getestet:** alles Live (echte Modelle, OpenRouter, die Probe), `doctor.sh` gegen Davids echtes Setup (nur gegen Stubs, jetzt auch unter macOS) und die TUI.
 
 ## Update 15.11.2026: eigenes Metadata Document für die Anmeldung an grove
 
