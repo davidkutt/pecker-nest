@@ -119,11 +119,11 @@ describe("the repository's agent/mcp.json", () => {
 
 	it("holds no token, secret or machine-specific path", () => {
 		const kb = real.mcpServers.kb as { headers?: unknown; env?: unknown; oauth?: Record<string, unknown> };
-		// Pi signs in with its own Client ID Metadata Document and keeps the tokens in its auth store.
+		// Pi signs in with nest's copy of its Client ID Metadata Document (gh-pages) and keeps the tokens in its auth store.
 		assert.equal(kb.headers, undefined, "an Authorization header would be a static token");
 		assert.equal(kb.env, undefined);
-		assert.deepEqual(Object.keys(kb.oauth ?? {}).sort(), ["clientRegistration", "scope"]);
-		assert.equal(kb.oauth?.clientRegistration, "cimd");
+		assert.deepEqual(Object.keys(kb.oauth ?? {}).sort(), ["clientId", "scope"]);
+		assert.equal(kb.oauth?.clientId, "https://davidkutt.github.io/pecker-nest/oauth/pi-client.json");
 		assert.doesNotMatch(text, /\/Users\/|\/home\/|~\/|\$\{|"!/, "a home path, an environment variable or a command value");
 	});
 

@@ -142,7 +142,7 @@ Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Aut
 
 Die Knowledge Base ist [pecker-grove](https://github.com/davidkutt/pecker-grove): deine Markdown-Notizen und die Webseiten, die du dort gespeichert hast. Sie ist unter `http://localhost:8000/mcp` erreichbar, solange du grove gestartet hast.
 
-Entschieden am 12.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, per OAuth über Keycloak mit seinem eigenen Client ID Metadata Document (`https://pi.dev/oauth/client.json`). Es gibt kein Token zum Einfügen und keine Variable `KB_TOKEN`. groves Tokens leben fünf Minuten; Pi erneuert sie selbst und legt sie in `~/.pi/agent/mcp-auth.json` ab. Die Datei liegt nicht im Repo, und das Safety-Gate behandelt sie als Secret. Herleitung und verworfene Alternativen stehen in [research/grove-kb-auth.md](research/grove-kb-auth.md).
+Entschieden am 12.11., angepasst am 15.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, per OAuth über Keycloak mit einem Client ID Metadata Document. Pis eigenes Dokument (`https://pi.dev/oauth/client.json`) kann Keycloak 26.8 nicht lesen; nest nimmt deshalb eine Kopie davon auf GitHub Pages (`https://davidkutt.github.io/pecker-nest/oauth/pi-client.json`, Branch `gh-pages`) als `oauth.clientId`. Es gibt kein Token zum Einfügen und keine Variable `KB_TOKEN`. groves Tokens leben fünf Minuten; Pi erneuert sie selbst und legt sie in `~/.pi/agent/mcp-auth.json` ab. Die Datei liegt nicht im Repo, und das Safety-Gate behandelt sie als Secret. Herleitung und verworfene Alternativen stehen in [research/grove-kb-auth.md](research/grove-kb-auth.md).
 
 **Schon erledigt** (nichts davon musst du eintragen):
 
@@ -152,7 +152,7 @@ Entschieden am 12.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, 
 
 **Voraussetzung in grove** (nicht in diesem Repo, der Planungschat macht daraus eine grove-Aufgabe):
 
-- Der Realm kennt Pi: eine dritte Client-Policy für `pi.dev`, neben `claude.ai` und `vscode.dev`.
+- Der Realm kennt Pi: eine dritte Client-Policy `mcp-pi` für `davidkutt.github.io`, neben `claude.ai` und `vscode.dev`.
 - groves Handcheck M3c.0 ist bestanden: Claude Code meldet sich an `/mcp` an, und eine Suche liefert Treffer.
 
 Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-Formulars. nest arbeitet dann wie bisher ohne Knowledge Base.
@@ -169,7 +169,7 @@ Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-F
    pi mcp login kb
    ```
 
-   Der Browser öffnet Keycloak. Melde dich an und erlaube den Zugriff. Das erste Mal braucht Internet, weil Keycloak Pis Dokument von `pi.dev` lädt. In einer laufenden Pi-Session geht dasselbe mit `/mcp` → `kb` → „Sign in“. Die Anmeldung gilt für alle Pi-Sessions und hält, bis sie 30 Tage ungenutzt war. Abmelden: `pi mcp logout kb`.
+   Der Browser öffnet Keycloak. Melde dich an und erlaube den Zugriff. Das erste Mal braucht Internet, weil Keycloak das Dokument von `davidkutt.github.io` lädt. In einer laufenden Pi-Session geht dasselbe mit `/mcp` → `kb` → „Sign in“. Die Anmeldung gilt für alle Pi-Sessions und hält, bis sie 30 Tage ungenutzt war. Abmelden: `pi mcp logout kb`.
 
 3. Prüfen:
 
@@ -424,7 +424,8 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (unde
 | 10.11.2026 | Denkstufe des starken Modells | Immer `max`: `/plan`, Eskalationen, `/hard` und der Reviewer. Flash bleibt auf `high`. |
 | 10.11.2026 | Container-Key | Liegt im macOS-Schlüsselbund (`pecker-nest-container-key`). `pi-run.sh` nimmt den interaktiven Key nie von selbst. |
 | 10.11.2026 | Veraltetes Image | `pi-run.sh` startet nur ein Image, das `scripts/build-image.sh` aus dem aktuellen Commit gebaut hat. |
-| 12.11.2026 | Anmeldung an der Knowledge Base | Pi meldet sich bei grove per OAuth mit seinem Client ID Metadata Document an (`oauth.clientRegistration: "cimd"`, Scope `kb:read offline_access`). Kein Token und kein Secret im Repo oder in einer Shell-Konfiguration; grove bekommt eine dritte Client-Policy für `pi.dev`. Begründung: [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| 12.11.2026 | Anmeldung an der Knowledge Base | Pi meldet sich bei grove per OAuth mit einem Client ID Metadata Document an (Scope `kb:read offline_access`). Kein Token und kein Secret im Repo oder in einer Shell-Konfiguration. Begründung: [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| 15.11.2026 | Eigenes Metadata Document | Keycloak 26.8 lehnt Pis Dokument auf `pi.dev` ab (unbekanntes Feld `token_endpoint_auth_methods_supported`). nest veröffentlicht eine Kopie ohne dieses Feld auf GitHub Pages und setzt sie als `oauth.clientId`; grove bekommt die Client-Policy `mcp-pi` für `davidkutt.github.io`. Siehe [v1-notes.md](v1-notes.md). |
 | 12.11.2026 | Knowledge Base in Subagents | Nicht in V1. `planner` und `reviewer` bleiben ohne `mcp:kb`-Tool, weil sie sonst ohne laufendes grove nicht starten. |
 
 Alle offenen Fragen des Plans sind damit entschieden. Bewusst offen bis nach der Live-Probe und den ersten echten Sessions: Provider festlegen (`only`, `quantizations`), `DEFAULT_STRONG`, Flashs Denkstufe, die Eskalationsschwellen, Preserved Thinking für GLM und der Vergleich mit pi-project-profile.
