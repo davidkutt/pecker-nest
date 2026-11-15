@@ -11,7 +11,7 @@ Drei Repos, alle unter `github.com/davidkutt`:
 | Repo | Was es ist | Wohin |
 | --- | --- | --- |
 | `pecker-nest` | Die Pi-Konfiguration aus dem Plan (dort `pi-config`): Gates, Router, Subagent-Rollen, Prompts, Skills, Docker | `~/dev/pecker-nest`, genau dieser Pfad |
-| `pecker-api` | TypeScript-Pilot: Gerüst mit einem kleinen Modul und Tests (seit 07.11. nur noch Testmaterial; echte Arbeit läuft in undertext, siehe Runbook M7) | `~/dev/pecker-api` |
+| `pecker-api` | TypeScript-Pilot: Gerüst mit einem kleinen Modul und Tests (seit 07.11. nur noch Testmaterial; echte Arbeit läuft in pecker-grove, danach in undertext, siehe Runbook M7) | `~/dev/pecker-api` |
 | `pecker-ml` | Python-Pilot: Gerüst mit einem kleinen Modul und Tests (ebenso) | `~/dev/pecker-ml` |
 
 So hängt es zusammen:
@@ -212,7 +212,7 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und 
 
 ## 7. Wie es weitergeht
 
-1. **Dogfooding:** [Runbook](RUNBOOK.md), M7: undertext M1 mit nest bauen, Claude Code begleitet und schreibt Übergaben. Die Abnahmetests 1–13 laufen dabei mit.
+1. **Dogfooding:** [Runbook](RUNBOOK.md), M7: pecker-grove M3c.2 mit nest bauen, danach undertext, Claude Code begleitet und schreibt Übergaben. Die Abnahmetests 1–13 laufen dabei mit.
 2. **Router verstehen:** Runbook, M5. `router/escalate` ist schon Standard.
 3. **Knowledge Base nutzen:** Runbook, M3. Der Server `kb` (pecker-grove) ist schon eingetragen; du startest grove und meldest dich einmal mit `pi mcp login kb` an.
 
