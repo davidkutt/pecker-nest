@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
-import { containerMcpConfig, isHostLocal, parseAgent, toolOverrides, writeContainerConfig } from "../scripts/container-config.ts";
+import { containerMcpConfig, isHostLocal, type McpConfig, parseAgent, toolOverrides, writeContainerConfig } from "../scripts/container-config.ts";
+
+const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const dirs: string[] = [];
 after(() => {
@@ -96,5 +99,46 @@ describe("writeContainerConfig", () => {
 
 		assert.deepEqual(writeContainerConfig(nest, agentDir), []);
 		assert.ok(lstatSync(join(agentDir, "settings.json")).isSymbolicLink());
+	});
+});
+
+describe("the repository's agent/mcp.json", () => {
+	const text = readFileSync(join(NEST, "agent/mcp.json"), "utf-8");
+	const real = JSON.parse(text) as McpConfig;
+
+	it("registers the knowledge base, and the container switches it off (decision of 30.10.2026)", () => {
+		assert.equal(real.mcpServers.kb?.url, "http://localhost:8000/mcp");
+		assert.notEqual(real.mcpServers.kb.enabled, false, "the host needs the server enabled");
+
+		const { config, disabled } = containerMcpConfig(real);
+
+		assert.deepEqual(disabled, ["kb"]);
+		assert.equal(config.mcpServers.kb.enabled, false);
+		assert.deepEqual({ ...config.mcpServers.kb, enabled: undefined }, { ...real.mcpServers.kb, enabled: undefined }, "nothing else changes");
+	});
+
+	it("holds no token, secret or machine-specific path", () => {
+		const kb = real.mcpServers.kb as { headers?: unknown; env?: unknown; oauth?: Record<string, unknown> };
+		// Pi signs in with its own Client ID Metadata Document and keeps the tokens in its auth store.
+		assert.equal(kb.headers, undefined, "an Authorization header would be a static token");
+		assert.equal(kb.env, undefined);
+		assert.deepEqual(Object.keys(kb.oauth ?? {}).sort(), ["clientRegistration", "scope"]);
+		assert.equal(kb.oauth?.clientRegistration, "cimd");
+		assert.doesNotMatch(text, /\/Users\/|\/home\/|~\/|\$\{|"!/, "a home path, an environment variable or a command value");
+	});
+
+	it("hides the write tool and declares only the search directly", () => {
+		const kb = real.mcpServers.kb as { exposure?: string; toolExposure?: Record<string, string> };
+		assert.equal(kb.exposure, "deferred");
+		assert.deepEqual(kb.toolExposure, { search_knowledge_base: "direct", ingest_url: "hidden" });
+	});
+
+	it("is used by no subagent: a subagent with an mcp:kb tool does not start while the server is down", () => {
+		const agentsDir = join(NEST, "agent/agents");
+		const agents = readdirSync(agentsDir)
+			.filter((file) => file.endsWith(".md"))
+			.map((file) => parseAgent(readFileSync(join(agentsDir, file), "utf-8")));
+		assert.ok(agents.length >= 4);
+		assert.deepEqual(toolOverrides(agents, ["kb"]), {}, "see docs/research/grove-kb-auth.md, P5");
 	});
 });

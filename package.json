@@ -13,6 +13,7 @@
       "./extensions/quality-gate.ts",
       "./extensions/router.ts",
       "./extensions/checkpoint.ts",
+      "./extensions/provider-log.ts",
       "./extensions/vendor/todo.ts",
       "./extensions/vendor/questionnaire.ts"
     ],

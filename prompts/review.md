@@ -6,7 +6,7 @@ Review the changes in this repository against `${1:-HEAD}`. Do not edit any file
 
 1. Collect the diff: `git diff ${1:-HEAD}` plus untracked files from `git status --short`.
 2. Read `AGENTS.md` and check the diff against its commands, architecture rules, conventions and definition of done.
-3. Look up relevant conventions in the knowledge base and cite what you used.
+3. If knowledge-base tools (`mcp__kb__*`) are available to you, look up the conventions for the touched area and cite the source. If not, say that the knowledge base was not consulted.
 4. Check test coverage: every behavior change needs a test that would fail without it. Flag deleted, skipped or weakened tests and loosened lint/type settings.
 5. Run the check command from `AGENTS.md` and include its result.
 

@@ -1,6 +1,153 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 08.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 12.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 12.11.2026: Knowledge Base (pecker-grove) angebunden
+
+Aus der Aufgabe [tasks/grove-kb.md](tasks/grove-kb.md). Die Knowledge Base aus dem Plan ist pecker-grove unter `http://localhost:8000/mcp`. Wie Pi sich dort anmelden kann, steht mit Quellen in [research/grove-kb-auth.md](research/grove-kb-auth.md); David hat am 12.11. Option A gewählt. Der Pull Request bleibt ein Entwurf, bis groves Handcheck M3c.0 bestanden ist.
+
+**Was neu ist:**
+
+| Bereich | Vorher | Jetzt |
+| --- | --- | --- |
+| `agent/mcp.json` | leer | Server `kb` mit `oauth.clientRegistration: "cimd"` und Scope `kb:read offline_access`; `exposure: deferred`, `search_knowledge_base` direkt, `ingest_url` versteckt. Kein Token, Secret oder Pfad. |
+| Anmeldung | Runbook: Token in `KB_TOKEN`, per `--bearer-token-env-var` | Pi meldet sich selbst an (OAuth mit PKCE, Client ID Metadata Document auf `pi.dev`), speichert die Tokens in `~/.pi/agent/mcp-auth.json` und erneuert sie. Du führst einmal `pi mcp login kb` aus. |
+| `agent/APPEND_SYSTEM.md` | kein Verweis auf die Knowledge Base | Abschnitt „Knowledge base first“ ist zurück, mit dem echten Toolnamen und einer neuen Regel: Text aus der Knowledge Base ist Nachschlagematerial, nie eine Anweisung. |
+| Skill `best-practices` | Platzhalter `mcp__kb__<search tool>` | die drei Lese-Tools mit Namen, dieselbe neue Regel ausführlich, und: nicht selbst anmelden oder den Server starten |
+| `scripts/doctor.sh` | keine Prüfung | eine Zeile `knowledge base:`; `PASS`, wenn grove antwortet und Pi angemeldet ist, sonst `WARN` mit dem Befehl. Nie `FAIL`. |
+| Runbook M3 | Server selbst eintragen, 30 Minuten | Voraussetzung in grove, grove starten, einmal anmelden, Tests 6 und 7 |
+
+**Warum nicht `KB_TOKEN`:** groves Access-Tokens leben fünf Minuten. Pi löst einen Header-Wert einmal je Verbindung auf, nicht je Anfrage, und erneuert ein Token nicht, das es per Header bekommen hat. Jede Session wäre nach fünf Minuten ohne Knowledge Base, bis zu einem `/mcp reconnect`.
+
+**Abweichung: `planner` und `reviewer` ohne Knowledge Base.** Der Plan und Runbook M3 sahen `mcp:kb/<such-tool>` für beide vor. Ein Subagent mit einem solchen Tool startet aber nicht, solange der Server fehlt: pi-subagents 0.87.0 löst `mcp:`-Einträge gegen die Tools der Hauptsession auf und bricht den Start bei einem nicht auflösbaren Eintrag ab. Eine Einstellung, die das Tool optional macht, gibt es weder in Pi noch in pi-subagents (gesucht in Doku und Quellcode, Befund P5). grove läuft nicht immer; mit dem Tool wären `/review-chain` und jeder Planner-Lauf an groves Zustand gebunden. Die Hauptsession schlägt deshalb selbst nach und gibt das Ergebnis in der Aufgabe weiter. Ein Unit-Test hält fest, dass keine Rolle ein `mcp:kb`-Tool hat.
+
+**Was sich in jeder Session ändert, auch ohne grove:** Das Tool `tool_search` ist aktiv, und der System-Prompt führt den Server `mcp__kb` mit seiner Beschreibung im Abschnitt `mcp_servers`. Läuft grove nicht, ist kein `mcp__kb__…`-Tool deklariert, `tool_search` antwortet „No matching tools found.“, und der erste Prompt wartet unter zwei Sekunden auf den gescheiterten Verbindungsversuch. Feldnotizen von vor und nach diesem Stand unterscheiden sich also in der Konfiguration; deshalb wird zwischen zwei nest-Sessions gemergt, nicht während eine Notiz offen ist.
+
+**Getestet:** 334 Unit-Tests und 26 E2E-Szenarien, alle mit eingetragenem `kb` und ohne laufenden Server. Neu:
+
+- ein E2E-Szenario: Der Server ist eingetragen und nicht erreichbar, das Modell sucht trotzdem nach dem Tool. Der Lauf endet mit Exit-Code 0, kein `mcp__`-Tool ist deklariert, der System-Prompt nennt Server, Regel und das Verhalten ohne Knowledge Base;
+- das erste Szenario prüft jetzt in beide Richtungen, dass der Abschnitt „Knowledge base first“ und der Eintrag in `mcp.json` zusammen kommen und gehen;
+- Unit-Tests auf der echten `agent/mcp.json`: Der Container schaltet `kb` ab (Entscheidung vom 30.10.); die Datei enthält weder Header noch Secret, Umgebungsvariable, Befehl oder Home-Pfad; keine Rolle hat ein `mcp:kb`-Tool;
+- `doctor.sh` gegen ein Stub-`pi` in allen Zuständen (verbunden, nicht angemeldet, nicht erreichbar, abgeschaltet, fehlend, unlesbare Antwort): immer Exit-Code 0.
+
+Zusätzlich lief Pi 1.5.0 gegen einen lokalen Mock, der wie groves `/mcp` und wie Keycloaks Metadaten mit CIMD antwortet. Die Autorisierungsanfrage trug `client_id=https://pi.dev/oauth/client.json`, PKCE S256, `scope=kb:read offline_access`, `prompt=consent` und `resource=http://localhost:8000/mcp`.
+
+**Nicht getestet:**
+
+- **Die Anmeldung an einem echten Keycloak.** groves Realm hat noch keine Policy für `pi.dev`, und Docker lief in der Build-Umgebung nicht. Ob Keycloak 26.8.1 Pis Dokument annimmt, zeigt groves Realm-Check.
+- **Pis Metadata Document selbst.** `pi.dev` war aus der Build-Umgebung nicht erreichbar. Sein Inhalt entscheidet, welche vertrauenswürdigen Domains groves Policy braucht.
+- **Tests 6 und 7** und die Antwortqualität der Suche: Sie brauchen deinen Stack.
+- **Die TUI:** die Meldung `MCP servers need attention` und `/mcp`. Geprüft sind der Print-Modus und `pi mcp list`.
+- **`doctor.sh` gegen ein echtes `pi mcp list`** lief nur für die Zustände „nicht erreichbar“ und „nicht angemeldet“ (gegen den Mock), der Zustand „verbunden“ nur gegen das Stub.
+
+## Update 10.11.2026 (zweite Übergabe): Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests
+
+Aus der zweiten Übergabe vom 10.11.: Die erste hat die Modelle und das Setup verbessert. Diese liefert, was die nächste begleitete Session braucht, um zu zeigen, ob das geholfen hat. Vier Punkte, ein Commit je Punkt.
+
+**Was neu ist:**
+
+| Bereich | Vorher (10.11., erste Übergabe) | Jetzt |
+| --- | --- | --- |
+| Session-Report, Ausgang der Wechsel | Wechsel zum starken Modell je Grund und je Modell gezählt | zusätzlich je Grund und starkem Modell: wie oft das Gate danach grün war, wie oft es rot zurückgab, wie viele Anfragen das starke Modell brauchte und was sie kosteten, z. B. `gate, GLM 5.3: 3 switches, 2 green, 1 handed back; 14 strong-model requests, $0.42` |
+| Session-Report, Ausweichen bei der Anfrage | nur als Hinweis im Terminal | eigene Zeilen: welches Modell ausgeschlossen wurde, warum, welches übernahm. Der Router schreibt dafür den Eintrag `nest-router-fallback` in die Session |
+| Session-Report, Provider | keine Angabe, welcher OpenRouter-Provider eine Anfrage bedient hat | Tabelle je Modell und Provider: Anfragen, Anfragefehler, gescheiterte Tool-Aufrufe und gescheiterte Edits. `extensions/provider-log.ts` schreibt den Provider bei der Anfrage in die Session (Eintrag `nest-provider`) |
+| Quality Gate | abgeschwächte Tests nur im Prompt verboten; nur der optionale Reviewer suchte danach | deterministische Prüfung des Diffs seit deinem Prompt (`extensions/lib/tamper-check.ts`). Ein Befund zählt wie ein roter Check |
+| `.pi/gate.json` | `command`, `maxRepairRounds`, `timeoutSeconds` | zusätzlich `tamperCheck` (Standard `true`) und `tamperPatterns` (eigene Muster) |
+| `doctor.sh` | scheiterte ohne laufenden Docker-Daemon und aktuelles Image | Daemon und Image nur mit `--docker`; ohne den Schalter eine Zeile `SKIP  docker: …`. Der Schlüsselbund-Eintrag bleibt geprüft, ohne `--docker` als `WARN` |
+| `/nest-handoff` | nahm die neueste Feldnotiz von heute | nimmt die offene Notiz des Repos: die neueste ohne End-HEAD. Sessions über mehrere Tage behalten eine Notiz |
+| `/nest-supervise` | notierte pecker-nest-Commit und Pi-Version | notiert dazu die Denkstufe je Stufe und Rolle und das starke Modell, gelesen aus dem Repo mit `scripts/field-note.ts`, und ob sich der Commit gegenüber der vorigen Notiz geändert hat |
+| Abschnitt für den Planungschat | Kosten, Wechsel, Eingriffe | zusätzlich die Mängel, die nests eigenes Gate und Review passiert haben (Bugs, abgeschwächte Tests, Regelbrüche), und die Zeilen zum Ausgang der Wechsel |
+| `grill-me` | fragte nach Prefill und Dateiformaten aus dem Stand | liest zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt |
+
+**Session-Report: wie der Ausgang eines Wechsels bestimmt wird**
+- Ein Wechsel beginnt mit dem Router-Eintrag, der auf das starke Modell umstellt, und endet mit deinem nächsten Prompt (oder dem Ende der Session). Auch eine Steering-Nachricht zählt als Prompt.
+- Sein Ausgang ist der letzte Gate-Lauf in dieser Zeit: grün („green“), rot („handed back“) oder kein Lauf („without a gate run“: `/plan`, Fragen, Repos ohne `gate.json`). Springt das starke Modell wegen eines roten Gates ein und das Gate läuft danach nicht mehr, weil die Runde nichts geändert hat, zählt der Wechsel als „handed back“.
+- Gezählt werden nur Anfragen, die ein starkes Modell bedient hat. Bleibt Flash trotz Wechsel am Zug (Bilder mit GLM), sind es null.
+- `/hard` über mehrere Prompts ist ein Wechsel, der mit dem ersten dieser Prompts endet: Der Router schreibt nur dann einen Eintrag, wenn sich die Stufe ändert.
+- `--json` trägt die neuen Felder: `stats.escalationOutcomes`, `stats.fallbacks`, `stats.providers`, `stats.tamper`.
+
+**Provider-Zuordnung: warum es keinen `--providers`-Schalter gibt**
+- Die Übergabe sah vor, die Antwort-IDs nachträglich über OpenRouters Generation-Abfrage aufzulösen, es sei denn, Pi gibt den Provider schon bei der Anfrage preis. Das tut Pi 1.5.0: Das Event `provider_stream_event` reicht jeden rohen Stream-Chunk an Extensions weiter, und OpenRouter nennt den Provider in jedem Chunk im Feld `provider` (dasselbe Feld liest die Live-Probe für ihre Spalte „Provider“).
+- `extensions/provider-log.ts` merkt sich daraus Antwort-ID und Provider und schreibt am Ende des Turns einen Eintrag `nest-provider`. Der Report verbindet ihn über die Antwort-ID mit der Assistant-Nachricht. Die ID kommt in der Session-Datei an (`message.responseId`; in einer Session-Datei aus dem E2E-Lauf nachgesehen).
+- Der Report bleibt damit offline: kein Key, keine Anfrage, kein Schalter.
+- Eine Anfrage, die scheitert, bevor ein Stream beginnt (404, 400), hat keinen Eintrag. Der Report liest den Provider dann aus dem Fehlertext, wenn OpenRouter dort `provider_name` nennt, und zeigt sonst „–“. Auch Sessions von vor diesem Stand zeigen „–“.
+- Die Extension läuft in der Hauptsession (über das Package) und in Subagents (`subagents.defaultSubagentOnlyExtensions`). Lädt ein Subagent sie doppelt, schreibt sie den Eintrag nur einmal.
+
+**Prüfung auf abgeschwächte Tests im Detail**
+- **Vergleich:** Bei jedem deiner Prompts hält das Gate den Arbeitsstand als Git-Tree fest, in einer temporären Kopie des Index. Index, Branch und Stash bleiben unberührt, ignorierte Dateien zählen nicht. Vor dem Check vergleicht es diesen Stand mit dem jetzigen (`git diff -M -U0`).
+- **Was gemeldet wird**, jeweils mit Datei und Zeile:
+  - gelöschte Testdateien (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, Code in `test/`, `tests/`, `__tests__/`, `e2e/`, `spec/`). Eine verschobene Testdatei ist keine gelöschte.
+  - weniger Testfälle in einer geänderten Testdatei. Gezählt werden Zeilen, die mit `it(`, `test(` oder `def test_` beginnen; entfernte minus hinzugefügte.
+  - neue Skip- und Fokus-Marker: `.skip`, `.only`, `.fixme`, `xit`, `xdescribe`, `fit`, `fdescribe`, die Option `{ skip: true }` (nur in Testdateien, weil `query.skip(10)` normaler Code ist); in Python `@pytest.mark.skip`, `xfail`, `pytest.skip(…)`, `unittest.skip`.
+  - neue Unterdrückungen: `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`, `eslint-disable`, `oxlint-disable`, `biome-ignore`; in Python `# type: ignore`, `# noqa`, `pyright: ignore`, `# pylint: disable`.
+  - Änderungen an Lint-, Typ- und Test-Konfiguration: Dateien wie `tsconfig*.json`, `eslint.config.*`, `.eslintrc*`, `.oxlintrc.json`, `biome.json`, `vitest.config.*`, `jest.config.*`, `playwright.config.*`, `pytest.ini`, `tox.ini`, `mypy.ini`, `pyrightconfig.json`, `ruff.toml`, `.flake8` (auch neu angelegte und gelöschte). In `package.json` ein geändertes oder entferntes Script und die Schlüssel `jest`, `eslintConfig`, `mocha`, `ava`, `vitest`, `c8`, `nyc`; neue Scripts und Abhängigkeiten nicht. In `pyproject.toml` die Tabellen `[tool.ruff]`, `[tool.pyright]`, `[tool.mypy]`, `[tool.pytest]`, `[tool.coverage]` und verwandte, in `setup.cfg` `[flake8]`, `[mypy]`, `[tool:pytest]`, `[coverage:*]`; Abhängigkeiten und `[tool.uv]` nicht.
+  - eigene Muster aus `tamperPatterns`, geprüft gegen jede hinzugefügte Zeile.
+- **Was „neu“ heißt:** Ein Marker zählt nur, wenn er netto dazukommt. Eine geänderte Zeile, die ihren Marker behält, ist eine entfernte und eine hinzugefügte Zeile und damit kein Befund.
+- **Ablauf:** Ein Befund macht das Gate rot, auch wenn der Check-Befehl grün ist (`… passed, but the weakened-test check has 1 finding. Repair round 1 of 2.`). Der Agent soll die Änderung zurücknehmen oder in einem Satz begründen. Begründet er nur und ändert nichts, endet der Lauf nach dieser einen Runde, und die Liste geht an dich: in der Session als Nachricht, headless auf stderr. Sind die Runden aufgebraucht, ebenso. Das Gate nimmt nie selbst etwas zurück.
+- **Router:** Ein Befund in Runde 2 ruft das starke Modell wie jedes rote Gate.
+- **Session-Log:** Der Eintrag `quality-gate` trägt die Befunde im Feld `tamper`. `ok` ist jetzt das Urteil des Gates (Check grün und kein Befund), `checkOk` das des Befehls. Der Report zählt die Befunde je Prompt einmal, nach Art, und nennt, wie viele am Ende des Laufs noch da waren.
+- **Grenzen:** Die Prüfung arbeitet zeilenweise, ohne Parser. Sie sieht nicht, wenn eine Assertion ausgehöhlt wird (`expect(true).toBe(true)`), wenn `parametrize`-Fälle wegfallen oder wenn ein Test umbenannt wird, sodass der Runner ihn nicht mehr findet. Dafür bleiben der Reviewer und die Zählung in `/nest-handoff`. Außerhalb eines Git-Repos läuft sie nicht und sagt das einmal. `/gate` von Hand führt nur den Befehl aus.
+- **Fehlalarme mit Ansage:** Wer ein Projekt aufsetzt, legt Konfigurationsdateien neu an und bekommt dafür Befunde. Das kostet eine Runde auf Flash und eine Liste, die du abnickst. Stört es in einem Repo, hilft `"tamperCheck": false`. `.pi/gate.json` selbst kann der Agent nicht ändern; das Safety-Gate schützt `.pi/`.
+
+**Weitere Befunde:**
+- **`agent_before_settle` ersetzt Einträge.** Gibt ein Handler `entries` zurück, ersetzt das die Vorschläge der Handler vor ihm (Pi-Doku, Abschnitt „turn_start / turn_end“). Das Quality-Gate hat bisher nur seine eigenen Einträge zurückgegeben und hängt sie jetzt an die vorhandenen an. Aufgefallen ist es beim neuen `nest-provider`-Eintrag.
+- **`SKIP` in `doctor.sh`:** Die Zeile zählt weder als Warnung noch als Fehler und steht nicht in der Summe. `/nest-supervise` übernimmt nur `WARN` und `FAIL` in die Feldnotiz; ohne `--docker` ruft `doctor.sh` Docker gar nicht auf.
+- **Feldnotizen finden:** Der Dateiname allein unterscheidet `undertext` nicht von `undertext-web`. `scripts/field-note.ts` liest deshalb zusätzlich die Zeile „Repository / branch“ der Notiz. Eine Notiz ohne die Zeile „Start HEAD → end HEAD“ gilt als geschlossen.
+- **Die Zeile „Config under test“** nennt `with uncommitted changes`, wenn der pecker-nest-Checkout nicht sauber ist. Die Zahlen einer solchen Session sind mit anderen nicht vergleichbar.
+
+**Getestet:** 329 Unit-Tests und 25 E2E-Szenarien. Neu sind zwei Szenarien: Ein übersprungener Test geht mit Datei und Zeile an den Agenten zurück und das Gate ist grün, sobald der Marker weg ist; bleibt er, bekommt der Nutzer die Liste, und die Datei bleibt, wie sie ist. Bestehende Szenarien prüfen jetzt zusätzlich den Ausgang eines Wechsels, das Ausweichen bei 404 und 400 im Report, den Provider je Anfrage in der Hauptsession und im Worker. Die Unit-Tests decken jeden Detektor an einem TypeScript- und einem Python-Repo ab, `doctor.sh` mit und ohne `--docker` gegen Stub-Programme und `scripts/field-note.ts` mit Notiz-Fixtures.
+
+**Nicht getestet:**
+- **Das Feld `provider` im echten OpenRouter-Stream.** Der Mock schickt es, weil OpenRouter es laut Doku schickt; `openrouter.ai` war aus der Build-Umgebung weiter nicht erreichbar. Zeigt die Tabelle „Providers“ nach der ersten echten Session überall „–“, fehlt das Feld. Dann ist die Abfrage über die Generation-ID der nächste Schritt; die ID steht schon in der Session-Datei.
+- **Die Skills selbst.** `/nest-supervise` und `/nest-handoff` sind Anweisungstexte für Claude Code. Getestet ist das Skript, aus dem sie ihre Zeilen nehmen, nicht ihr Ablauf.
+- **Die Anzeige in der TUI.** Reparaturrunde und Rückgabe mit Befundliste sind im Print-Modus geprüft.
+- **Docker.** Der Daemon lief in der Build-Umgebung nicht; `npm run e2e:docker` ist diesmal nicht gelaufen. Im Container gilt für die neue Prüfung dasselbe wie für den Rest des Gates: Sie braucht `git` im Arbeitsverzeichnis.
+- **macOS und Bash 3.2:** `doctor.sh` lief unter Bash 5 auf Linux. Die Änderung nutzt nur Konstrukte, die das Skript schon vorher nutzte.
+
+## Update 10.11.2026: Setup-Härtung und Modell-Passung
+
+Aus der Übergabe vom 10.11.: Die drei Modelle sollen so gut laufen, wie diese Harness es zulässt, und die Setup-Schritte, bei denen ein kleiner Fehler Geld kostet oder still schlechtere Ergebnisse liefert, sollen wegfallen. Zehn Punkte, ein Commit je Punkt.
+
+**Was neu ist:**
+
+| Bereich | Vorher (08.11.) | Jetzt (10.11.) |
+| --- | --- | --- |
+| Denkstufe des starken Modells | `max` nur für `/plan`; Eskalationen (`gate`, `loop`, `stuck`) und `/hard` auf `high`; Reviewer `high` | immer `max`, auch der Reviewer. Flash bleibt auf `high`. Hinweise lauten `router: GLM 5.3 at max (gate: …)`. |
+| Kimi übernimmt von Flash | Wiederholte Assistant-Nachrichten ohne `reasoning_content`; Moonshot kann das mit HTTP 400 ablehnen | `modelOverrides` in `agent/models.json` setzt `requiresReasoningContentOnAssistantMessages` für `moonshotai/kimi-k3.1-pro` |
+| Starkes Modell scheitert bei der Anfrage | Der Router wich nur aus, wenn das Modell in der Registry fehlte. Bei „No endpoints found“ endete der Lauf; bei einem von Pi wiederholten Fehler bekam dasselbe Modell die Anfrage wieder | gewähltes Modell → GLM 5.3 → Flash, mit einem Hinweis je Modell. Der Lauf geht weiter, und das Modell bleibt übersprungen, bis Pi neu startet oder du es mit `/strong <modell>` wieder wählst |
+| Container-Key | Ohne `PI_RUN_OPENROUTER_API_KEY` nahm `pi-run.sh` den `OPENROUTER_API_KEY` und warnte nur | `PI_RUN_OPENROUTER_API_KEY`, sonst der Schlüsselbund-Eintrag `pecker-nest-container-key`; `OPENROUTER_API_KEY` nur mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1`. Sonst Exit-Code 64 mit dem Schlüsselbund-Befehl |
+| Image | `docker build` von Hand; ein veraltetes Image lief ohne jedes Zeichen | `scripts/build-image.sh` setzt die Labels `nest.commit` und `nest.dirty`; `pi-run.sh` startet nur ein Image vom aktuellen Commit (sonst Exit-Code 65, `PI_RUN_ALLOW_STALE_IMAGE=1` übergeht es) |
+| Bereitschaft prüfen | Einzelbefehle aus Setup-Guide und Runbook | `scripts/doctor.sh [--repo <pfad>]`: je Prüfung eine Zeile `PASS`, `WARN` oder `FAIL` mit dem Befehl, der es behebt |
+| Echte Modelle | nichts live getestet | `scripts/probe-openrouter.ts`, das du selbst startest (Runbook, Abschnitt „Live-Probe“) |
+| Knowledge Base im System-Prompt | `APPEND_SYSTEM.md` verwies auf `mcp__kb__*`, obwohl `mcp.json` leer ist | Abschnitt entfernt, bis der Server eingetragen ist (Runbook M3, Schritt 4); `/review` schlägt nur nach, wenn die Tools da sind |
+| Gate-Ausgabe | die letzten 80 Zeilen | die ersten 30 und die letzten 50 Zeilen mit einer Auslassungsmarke, im selben Zeichenbudget |
+| Doku | Befehle für bash/zsh, Key per `export` | fish berücksichtigt (wo es abweicht: erst bash/zsh, dann fish), Key im Schlüsselbund, `/login openrouter` statt `export` |
+
+**Warum `max`:** Laut Übergabe empfiehlt Z.ai für Coding mit GLM 5.3 die Stufe `max` und veröffentlicht für sie einen höheren Wert als für `high` auf dem eigenen Coding-Benchmark; Moonshots Coding-Ergebnisse für Kimi K3.1 Pro entstanden auf `max` (öffentliche Doku der Anbieter, per Websuche am 10.11.; hier nicht erneut geprüft). Eine Eskalation heißt außerdem, dass Flash schon hängt; dort am Nachdenken zu sparen ist die falsche Stelle. **Der Preis:** Jeder Aufruf des starken Modells erzeugt mehr Output-Tokens, denn Reasoning zählt als Output (GLM 4,40 USD, Kimi 10 USD je Million). Die Wirkung zeigt der Session-Report: Die Spalte „Thinking“ der Modelltabelle nennt die Stufe, „Output“ und „Cost“ daneben den Verbrauch. Vergleiche die Sessions vor und nach dem 10.11.
+
+**Wie das Ausweichen bei der Anfrage funktioniert** (aus Pis Quellcode, 1.5.0):
+- Pi wiederholt eine Anfrage nur, wenn die Fehlermeldung nach etwas Vorübergehendem aussieht (`pi-ai/dist/utils/retry.js`: 429, 5xx, „overloaded“, „Provider returned error“, Netzwerkfehler). Der Router bekommt dann `reason: "retry"` samt der gescheiterten Nachricht.
+- „No endpoints found“ (HTTP 404) gehört nicht dazu: Der Lauf endete mit Exit-Code 1. Die Fehlermeldung hat die Form `404: {"message":"No endpoints found …","code":404}`.
+- Deshalb zwei Wege. Wiederholt Pi selbst (z. B. 400 „Provider returned error“), wechselt der Router in der Wiederholung das Modell. Wiederholt Pi nicht, merkt sich der Router die gescheiterte Antwort in `turn_end`, nimmt sie in `agent_before_settle` per `context_edit` aus dem Kontext (so wie Pi es bei eigenen Wiederholungen tut) und setzt den Lauf fort. `turn_end` selbst kann nach einem Fehler nicht fortsetzen; `agent_before_settle` schon.
+- Ausgewichen wird nur bei Routing-Fehlern (404, „No endpoints found“, unbekanntes Modell) und abgelehnten Anfragen (400, 422). Rate-Limits, Überlast und Serverfehler bleiben beim selben Modell. Bei 401, 402 und 403 (Key, Guthaben, Moderation) und bei Kontextüberlauf wechselt der Router nicht, weil ein anderes Modell daran nichts ändert.
+- Die Einordnung steht als reine Logik in `extensions/lib/router-logic.ts` (`failureKind`, `ruledOut`, `strongCandidates`). Trifft der Fehler Flash, endet der Lauf wie bisher.
+
+**Weitere Befunde:**
+- **Eigenes Reasoning beim Wiederholen:** Für Modelle mit `requiresReasoningContentOnAssistantMessages` schickt Pi das eigene Denken des Modells im Feld `reasoning` zurück und setzt daneben ein leeres `reasoning_content` (im Mock gemessen, bei Flash schon vor dem 10.11.). Für Kimi gilt das jetzt auch. Ob Moonshot über OpenRouter diese Kombination annimmt, zeigt die Probe im Abschnitt „Tool loop“ (Spalte „Earlier turns replayed as“).
+- **`/plan` auf Flash bleibt `max`.** Kann das starke Modell ein Gespräch nicht übernehmen (Bilder mit GLM, kein starkes Modell verfügbar), plant Flash wie bisher auf `max`. In allen anderen Fällen läuft Flash auf `high`, auch wenn es eine Eskalation selbst übernehmen muss.
+- **Exit-Codes von `pi-run.sh`:** neu 64 (falscher Aufruf oder kein Container-Key) und 65 (Image fehlt oder ist veraltet). Ein fehlendes Image stoppt den Lauf immer, auch mit `PI_RUN_ALLOW_STALE_IMAGE=1`: Docker würde sonst versuchen, den Namen aus einer Registry zu laden.
+- **`doctor.sh` prüft den Login ohne die Variable.** Ein exportierter `OPENROUTER_API_KEY` kann so keinen fehlenden `/login openrouter` verdecken. Ein fehlendes Kimi ist nur ein `WARN`, weil der Router dann auf GLM ausweicht. Den Schlüsselbund fragt es nur nach der Existenz des Eintrags (ohne `-w`).
+- **OpenRouter-Doku** (Websuche am 10.11.; `openrouter.ai` selbst war aus der Build-Umgebung nicht erreichbar): Die Provider eines Modells liefert `GET /api/v1/models/{author}/{slug}/endpoints`, die ZDR-Vorschau `GET /api/v1/endpoints/zdr` (braucht womöglich einen Management-Key; die Probe meldet den Fehler dann im Wortlaut und führt ZDR als „unknown“). Ein Request-Feld, das Reasoning aus früheren Turns erhält, ist dort nicht dokumentiert; das von einer Drittquelle genannte `reasoning.context` bleibt unbestätigt. Z.ais eigenes Feld ist `thinking: { type: "enabled", clear_thinking: false }`; die Probe schickt es im Abschnitt 4 als Variante mit. `agent/models.json` ändert sich dafür nicht.
+- **Feldnamen der Endpoints-Antwort:** Das offizielle Schema ließ sich nicht abrufen. Aus Sekundärquellen belegt sind `provider_name`, `quantization`, `pricing`, `status`, `supported_parameters` und `context_length`. Die Probe liest die Antwort deshalb nachsichtig und zeigt fehlende Werte als „–“; stimmt ein Feldname nicht, sieht man es im Bericht sofort.
+
+**Getestet:** 271 Unit-Tests und 23 E2E-Szenarien (vier neu: Kimi übernimmt eine Tool-Schleife von Flash; 404 für Kimi → GLM mit genau einem Hinweis; beide starken Modelle scheitern → Flash; 400 wechselt in Pis Wiederholung, 429 bleibt beim Modell). `pi-run.sh`, `build-image.sh` und `doctor.sh` laufen in den Tests gegen Stub-Programme für `docker`, `security` und `pi`, zusätzlich einmal unter Bash 3.2.57. `npm run e2e:docker` lief gegen ein Image, das `build-image.sh` gebaut hat (siehe unten zur Einschränkung).
+
+**Nicht getestet:**
+- **Die echten Modelle und OpenRouter.** Die Probe hat keine echte Anfrage gesendet: Es gab keinen Key, und `openrouter.ai` war nicht erreichbar. Geprüft sind ihre Auswertung und ihr Bericht mit Fixtures, und gegen den Mock, dass ihre Anfragen die Form haben, die Pi schickt. Offen bleibt damit alles, was sie klären soll: ob Kimi das leere `reasoning_content` wirklich braucht, ob GLM es auch braucht, welche Provider unter ZDR übrig bleiben, ob der Cache trifft.
+- **Ob `max` besser ist als `high`.** Das stützt sich auf die Angaben der Anbieter, nicht auf eigene Messungen.
+- **macOS:** Der Schlüsselbund (`security`) ist nur als Stub getestet, Docker Desktop gar nicht. Bash 3.2.57 lief als Linux-Build, nicht auf einem Mac.
+- **Das echte Image:** Die Debian-Mirrors waren wieder gesperrt, Docker Hub gedrosselt. Gebaut wurde mit `build-image.sh` eine Variante des `Dockerfile.pi` auf `node:24-bookworm` ohne den `apt-get`- und den uv-Schritt. Die Labels, die Prüfung in `pi-run.sh` und `doctor.sh` gegen den echten Docker-Daemon und `npm run e2e:docker` sind damit geprüft, der unveränderte Build nicht.
+- **Interaktive TUI:** Die Hinweise des Routers beim Ausweichen sind im Print-Modus geprüft, nicht in der TUI.
 
 ## Update 08.11.2026: Kimi K3.1 Pro als Ersatzmodell, DeepSeek V4.1 Pro
 
@@ -19,7 +166,7 @@ Entschieden im Planungschat am 08.11.: Kimi K3.1 Pro kommt als **optionales** Er
 **Kimi K3.1 Pro** (`moonshotai/kimi-k3.1-pro`): im Katalog von Pi 1.5.0 vorhanden, Text und Bilder, Denkstufen `off`, `low`, `high`, `max`, 1M Kontext. Preis bei OpenRouter etwa 2 / 10 / 0,20 USD je Million Tokens (Input / Output / Cache-Read); GLM 5.3 liegt bei etwa 1,40 / 4,40 / 0,26. Kimi kostet also beim Input knapp das 1,5-Fache, beim Output gut das Doppelte, beim Cache-Read etwas weniger. Der Vergleich muss deshalb zeigen, dass die Antworten besser sind, nicht nur anders.
 
 **Wie `/strong` sich verhält:**
-- Es entscheidet, welches Modell der Router für `/plan` (`max`), für Eskalationen und für `/hard` (`high`) holt. Flash bleibt in jedem Fall das Arbeitsmodell.
+- Es entscheidet, welches Modell der Router für `/plan`, für Eskalationen und für `/hard` holt (seit 10.11. alles auf `max`, vorher Eskalationen und `/hard` auf `high`). Flash bleibt in jedem Fall das Arbeitsmodell.
 - Wie `/hard` schaltet es nur um und sendet keine Nachricht; den Prompt tippst du danach. (Eine von einer Extension gesendete Nachricht würde den `/plan`-Modus des Safety-Gates erben, siehe Befund vom 07.11.)
 - Die Wahl steht im Router-State, nicht in einer Variablen im Prozess: sie folgt `/tree` und Forks und übersteht Neustarts und Kompaktierung.
 - Alte Sessions bleiben lesbar. Vor `/strong` hieß die starke Stufe im State `tier: "glm"`; `readState()` liest das als die starke Stufe mit GLM. Der Session-Report zählt solche Wechsel weiter als GLM.
@@ -29,10 +176,10 @@ Entschieden im Planungschat am 08.11.: Kimi K3.1 Pro kommt als **optionales** Er
 **Der Reviewer bleibt auf GLM.** Für den Vergleich im Review brauchst du keinen Rollenwechsel, sondern den Override für genau einen Lauf (pi-subagents, `docs/models.md`):
 
 ```text
-/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:high] "<Aufgabe>"
+/run reviewer[model=openrouter/moonshotai/kimi-k3.1-pro:max] "<Aufgabe>"
 ```
 
-Das ist in einem E2E-Szenario geprüft (RPC-Modus wie in der TUI): Der Reviewer läuft dann auf Kimi mit `high`, behält seine Routing-Vorgaben und bekommt weiterhin keine Schreib-Tools. `agent/agents/reviewer.md` bleibt unverändert auf GLM, der Override gilt nur für diesen Lauf.
+Das ist in einem E2E-Szenario geprüft (RPC-Modus wie in der TUI): Der Reviewer läuft dann auf Kimi mit `max` (seit 10.11., wie die Rolle selbst; vorher `high`), behält seine Routing-Vorgaben und bekommt weiterhin keine Schreib-Tools. `agent/agents/reviewer.md` bleibt unverändert auf GLM, der Override gilt nur für diesen Lauf.
 
 **DeepSeek V4.1 Pro:** weiter beobachten, es gibt kein Erscheinungsdatum. Sobald es da ist, mit Flash und dem starken Modell vergleichen; bis dahin ändert sich nichts.
 
@@ -59,7 +206,7 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 
 **Warum die Modelle wechseln:**
 - DeepSeek hat am 10.09. V4.1 Flash veröffentlicht und leitet seit dem 14.09. Anfragen an V4 Pro auf V4.1 Flash um. Der bisherige Reviewer (V4 Pro 0813) fällt weg. V4.1 Flash nimmt Bilder an, GLM 5.3 nicht.
-- nest nutzt den Stand vom 17.10. (`deepseek/deepseek-v4.1-flash-1017`, entschieden am 08.11.). Bei OpenRouter ist `deepseek/deepseek-v4.1-flash` ohne Datum der Stand vom 10.09., kein Alias auf den neuesten. Laut DeepSeek ist 1017 bei Coding und Agent-Aufgaben besser und schreibt kürzere Antworten, zum selben Preis. Dafür bedienen ihn bei OpenRouter weniger Provider (12 statt rund 38), deshalb nach dem Wechsel prüfen, ob mit ZDR noch einer übrig bleibt.
+- nest nutzt den Stand vom 17.10. (`deepseek/deepseek-v4.1-flash-1017`, entschieden am 08.11.). Bei OpenRouter ist `deepseek/deepseek-v4.1-flash` ohne Datum der Stand vom 10.09., kein Alias auf den neuesten. Laut DeepSeek ist 1017 bei Coding und Agent-Aufgaben besser und schreibt kürzere Antworten, zum selben Preis. Wie viele Provider ihn bei OpenRouter bedienen, ändert sich laufend: Am 08.11. stand hier „12 statt rund 38“, am 10.11.2026 listete die Modellseite 40. Maßgeblich ist, welche davon mit ZDR übrig bleiben; das zeigt `node scripts/probe-openrouter.ts` im Abschnitt „Endpoints“.
 - GLM 5.3 kostet bei OpenRouter etwa 1,40 / 4,40 / 0,26 USD (Input / Output / Cache-Read je Million Tokens), nicht 0,079 / 1,40 / 0,078 wie im Pi-Katalog 1.4.0. V4.1 Flash liegt je nach Provider bei etwa 0,15–0,30 / 0,60–1,20 / 0,003–0,03. Bei Coding-Agents dominiert der Cache-Read, deshalb ist eine lange Session auf Flash grob 10- bis 40-mal billiger.
 
 **Was sich geändert hat:**
@@ -69,8 +216,8 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | Pi / pi-subagents | 1.4.0 / 0.83.1 | 1.5.0 / 0.87.0 (Prüfung unten) |
 | Flash-Modell | `deepseek/deepseek-v4-flash-0731` | `deepseek/deepseek-v4.1-flash-1017` |
 | Standardmodell | `openrouter/z-ai/glm-5.3` (`high`) | `router/escalate` |
-| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. (Seit 08.11. ist das starke Modell mit `/strong` wählbar; mit Kimi eskaliert auch ein Gespräch mit Bildern.) |
-| Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` |
+| Router | `router/phased`: GLM plant auf `max`, baut auf `high` | `router/escalate`: Flash `high` für jeden Prompt; GLM `max` für `/plan`; GLM `high`, wenn das Quality Gate in Reparaturrunde 2 noch rot ist, bei Schleifen (dreimal derselbe Tool-Aufruf, drei fehlgeschlagene Edits an einer Datei, fünf fehlgeschlagene Tool-Aufrufe in Folge) und mit `/hard` bis `/flash`. Ein Gespräch mit Bildern bleibt auf Flash. (Seit 08.11. ist das starke Modell mit `/strong` wählbar; mit Kimi eskaliert auch ein Gespräch mit Bildern. Seit 10.11. läuft das starke Modell immer auf `max`.) |
+| Rollen | scout V4 Flash `low`, planner GLM `max`, worker GLM `high`, reviewer V4 Pro `high` | scout V4.1 Flash `low`, planner GLM `max`, worker V4.1 Flash `high`, reviewer GLM `high` (seit 10.11. `max`) |
 | Builtins | `oracle`, `delegate` auf GLM | `delegate` auf Flash (`subagents.defaultModel`), `oracle` auf GLM |
 | Kompaktierung | bei ~1M Kontext (Standard `reserveTokens` 16k) | bei ~250k: `compaction.modelOverrides` mit `reserveTokens: 800000` für Router, Flash und GLM. Andere Modelle behalten den Standard. |
 | Safety Gate | feste Regeln | zusätzlich: `.pi/` ist für den Agenten tabu, ebenso dieses Repo und Pis Agent-Verzeichnis (seit 08.11. auch Claude Codes Konfigurationsverzeichnis); `.pi/protect.json` je Repo (Pfade nicht schreiben, Pfade nicht lesen, Befehle nicht ausführen; Zeilen mit geschützten Pfaden werden aus grep-, find-, ls- und bash-Ausgaben entfernt). Eine kaputte `protect.json` sperrt alle Schreibzugriffe und Befehle. |
@@ -98,8 +245,10 @@ Entschieden im Planungschat: DeepSeek V4.1 Flash arbeitet, GLM 5.3 springt ein (
 | uv aus dem offiziellen Image (`ghcr.io/astral-sh/uv`) | uv per pip von PyPI, Version gepinnt | Gleiche Version, eine Registry weniger. |
 | Scout auf der „niedrigsten verfügbaren“ Denkstufe | `low` | DeepSeek V4 Flash bietet auch `off`. `low` behält etwas Reasoning für zuverlässige Tool-Aufrufe; `off` ist eine Zeile in `agent/agents/scout.md`. |
 | Router-Code aus dem Update | Gleiches Verhalten, angeboten wird nur die Stufe `high` | Die Phase bestimmt die Stufe (`max` → `high`); eine wählbare Stufe hätte keine Wirkung. |
-| `-e OPENROUTER_API_KEY` (Container-Key) | `pi-run.sh` liest `PI_RUN_OPENROUTER_API_KEY` und gibt ihn als `OPENROUTER_API_KEY` in den Container | Dein interaktiver Key (ohne Limit) landet so nicht versehentlich im Container. Fehlt die Variable, nimmt das Skript `OPENROUTER_API_KEY` und warnt. |
+| `-e OPENROUTER_API_KEY` (Container-Key) | `pi-run.sh` liest `PI_RUN_OPENROUTER_API_KEY` und gibt ihn als `OPENROUTER_API_KEY` in den Container | Dein interaktiver Key (ohne Limit) landet so nicht versehentlich im Container. Seit 10.11.: Fehlt die Variable, liest das Skript den macOS-Schlüsselbund (`pecker-nest-container-key`); `OPENROUTER_API_KEY` nimmt es nur noch mit `PI_RUN_ALLOW_INTERACTIVE_KEY=1`, sonst bricht es mit Exit-Code 64 ab. Vorher nahm es `OPENROUTER_API_KEY` mit einer bloßen Warnung. |
 | RAG-Server aus dem Container erreichbar machen | Container-Läufe ohne Knowledge Base; `scripts/container-config.ts` schaltet beim Image-Bau MCP-Server ab, die nur auf dem Host laufen (stdio, `localhost`), und nimmt deren `mcp:`-Tools aus den Subagents | Entscheidung vom 30.10.: Die Knowledge Base läuft nur lokal. Ohne das Abschalten würde ein Subagent mit `mcp:kb/…` im Container gar nicht starten (getestet: die Kette bricht am Reviewer ab, mit der Anpassung läuft sie durch). |
+| Knowledge Base mit Token (`--bearer-token-env-var KB_TOKEN`) | OAuth-Anmeldung durch Pi mit seinem Client ID Metadata Document; Tokens in Pis eigenem Speicher | groves MCP-Server nimmt kein statisches Token, seine Tokens leben fünf Minuten, und Pi erneuert kein Token aus einem Header. Befunde in [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| `planner` und `reviewer` mit `mcp:kb/<such-tool>` | Beide ohne Knowledge Base; die Hauptsession schlägt nach | Ein Subagent mit `mcp:kb`-Tool startet nicht, solange grove nicht läuft, und das Tool lässt sich nicht optional machen (Update vom 12.11.). |
 | `pi update --models` vor `pi -p` | In `task.sh`, mit 60 s Timeout, Fehlschlag nicht fatal | Der Befehl lädt erst den Katalog von `pi.dev`, dann `/models/user` bei OpenRouter. Ohne Netz läuft Pi mit dem eingebauten Katalog weiter; die Routing-Vorgaben gelten trotzdem. |
 
 ## Was die Tests gefunden haben
@@ -122,13 +271,13 @@ Mit OpenRouter bestätigt (11 Szenarien plus Container-Lauf):
 
 ## Modelle
 
-Stand 08.11. (alle drei 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read, wie OpenRouter sie im November listet; der Pi-Katalog schätzt anders). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys, und der Session-Report rechnet mit den Kosten, die OpenRouter meldet.
+Stand 10.11. (alle drei 1M Kontext; Preise in USD je Million Tokens, Input / Output / Cache-Read, wie OpenRouter sie im November listet; der Pi-Katalog schätzt anders). Nach `/login openrouter` ersetzt Pi Limits und Preise durch die Werte deines Keys, und der Session-Report rechnet mit den Kosten, die OpenRouter meldet.
 
 | Modell | ID | Preis (OpenRouter) | Denkstufen | Bilder | Rolle |
 | --- | --- | --- | --- | --- | --- |
 | DeepSeek V4.1 Flash (Stand 17.10.) | `deepseek/deepseek-v4.1-flash-1017` | ca. 0,15–0,30 / 0,60–1,20 / 0,003–0,03, je nach Provider | `off`, `low`, `high`, `max` | ja | Router (Standard), `scout` (`low`), `worker` (`high`), `delegate` |
-| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`) als Standard, `planner` (`max`), `reviewer` (`high`), `oracle` |
-| Kimi K3.1 Pro (optional, seit 08.11.) | `moonshotai/kimi-k3.1-pro` | ca. 2 / 10 / 0,20 | `off`, `low`, `high`, `max` | ja | Router nach `/strong kimi`, im Review per Lauf-Override; sonst nicht belegt |
+| GLM 5.3 | `z-ai/glm-5.3` | ca. 1,40 / 4,40 / 0,26 | `low`, `high`, `max` (nicht abschaltbar) | nein | Router (`/plan`, Eskalation, `/hard`; immer `max`) als Standard, `planner` (`max`), `reviewer` (`max`), `oracle` |
+| Kimi K3.1 Pro (optional, seit 08.11.) | `moonshotai/kimi-k3.1-pro` | ca. 2 / 10 / 0,20 | `off`, `low`, `high`, `max` | ja | Router nach `/strong kimi` (`max`), im Review per Lauf-Override; sonst nicht belegt |
 
 Noch zu beobachten: DeepSeek V4.1 Pro, sobald es erscheint (kein Erscheinungsdatum). Nicht nötig: GLM 5.3 Prime (dasselbe Modell, schneller, doppelter Preis), GLM 5.3 Flash und ähnliche günstige Modelle (der Platz ist mit V4.1 Flash besetzt).
 
@@ -137,6 +286,7 @@ Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4
 ## OpenRouter-Routing
 
 - **`agent/models.json`** wird wie `settings.json` nach `~/.pi/agent/` verlinkt und ins Image übernommen. Es setzt für alle OpenRouter-Modelle `openRouterRouting` mit `zdr: true`, `data_collection: "deny"` und `require_parameters: true`. Pi schickt das als `provider`-Feld.
+- **Kimi K3.1 Pro übernimmt von Flash (seit 10.11.):** Moonshot verlangt in einer Tool-Schleife die vollständige Assistant-Nachricht samt Reasoning. Beim Modellwechsel verwirft Pi aber das Denken des anderen Modells (`transform-messages.js`, Zweig `isSameModel`). Für DeepSeek hängt Pi deshalb an jede wiederholte Assistant-Nachricht ein leeres `reasoning_content` (`requiresReasoningContentOnAssistantMessages`); der OpenRouter-Eintrag von Kimi im Pi-Katalog hat das Flag nicht, Pis eigener Moonshot-Eintrag schon. `modelOverrides` in `agent/models.json` setzt es für `moonshotai/kimi-k3.1-pro`. Das `compat` des Overrides wird Feld für Feld mit dem des Providers gemischt (`mergeCompat` in Pis `provider-composer.js`), die Routing-Vorgaben bleiben also erhalten; ein E2E-Szenario prüft beides. Für GLM 5.3 ist das Flag nicht gesetzt, weil es dafür keinen Beleg gibt; `scripts/probe-openrouter.ts` prüft beide Modelle live.
 - **Bewusst ohne `order` und `sort`:** Beides umgeht das Sticky Routing. `only` und `ignore` kannst du gefahrlos ergänzen.
 - **Quantisierung:** `quantizations` ist nicht gesetzt. Mit `["fp8", "bf16"]` schließt du stark quantisierte Endpunkte aus, riskierst aber, dass mit ZDR kein Provider übrig bleibt.
 - **EU-Endpunkt** (`https://eu.openrouter.ai/api/v1` als `baseUrl`): nicht eingerichtet. Er braucht einen Business-Plan und bedient DeepSeek V4 Pro derzeit nicht.
@@ -144,7 +294,8 @@ Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4
 ## Quality Gate im Detail
 
 - **Auslöser:** am Ende eines Laufs, der Code geändert hat. Die Änderung wird per `git status` und Inhalts-Hash gegen den Stand bei Prompt-Start erkannt, plus `edit`/`write`-Aufrufe. Das erfasst auch Änderungen per `bash` oder durch Subagents.
-- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2) und `timeoutSeconds` (Standard 600).
+- **Konfiguration:** `.pi/gate.json` mit `command` (Pflicht), `maxRepairRounds` (Standard 2), `timeoutSeconds` (Standard 600), `tamperCheck` (Standard `true`) und `tamperPatterns` (Standard leer).
+- **Prüfung auf abgeschwächte Tests (seit 10.11., zweites Update):** Das Gate vergleicht den Arbeitsstand bei deinem Prompt mit dem jetzigen und meldet mit Datei und Zeile: gelöschte Testdateien, weniger Testfälle in einer geänderten Testdatei, neue Skip- und Fokus-Marker, neue Unterdrückungen, Änderungen an Lint-, Typ- und Test-Konfiguration. Ein Befund zählt wie ein roter Check. `"tamperCheck": false` schaltet die Prüfung ab; `"tamperPatterns"` ergänzt eigene Muster, als Liste regulärer Ausdrücke oder als `{ "pattern": "…", "reason": "…" }`. Die Einzelheiten stehen oben im zweiten Update vom 10.11.
 - **Nur in vertrauten Projekten:** Die Datei enthält einen Befehl aus dem Repo.
 - **Abbruch:** nach `maxRepairRounds`, wenn eine Runde nichts geändert hat, oder bei Exit-Code 127 (Befehl fehlt, also Umgebungsproblem). Du bekommst dann einen Hinweis, headless auf stderr.
 - **Protokoll:** Jedes Ergebnis landet als Eintrag `quality-gate` im Session-Log.
@@ -202,6 +353,6 @@ Bewertung von Version 1.4.0 aus dem Quellcode; der praktische Test in den Pilot-
 - **Echte Modelle, Pilot-Repos und die Knowledge Base:** brauchen deine Schlüssel und Repos. Die Mock-Tests prüfen die Verdrahtung, nicht die Qualität der Antworten.
 - **Was OpenRouter aus den Vorgaben macht:** ob mit ZDR und `require_parameters` für alle drei Modelle Provider übrig bleiben, welche das sind (Test 12) und ob der Cache trifft (Test 13). Getestet ist nur, dass Pi die Vorgaben und die Session-ID schickt.
 - **Erfolgreiches `pi update --models`:** braucht `pi.dev`, das hier gesperrt war. Getestet ist der Fehlerfall: Der Lauf geht mit dem eingebauten Katalog weiter.
-- **Der `apt-get`-Schritt im `Dockerfile.pi`:** Die Debian-Mirrors waren aus der Build-Umgebung gesperrt. Getestet wurde eine Variante auf `node:24-bookworm` (git und python3 vorinstalliert) mit identischen übrigen Schritten. Beim ersten Build auf deinem Rechner läuft der apt-Schritt zum ersten Mal.
-- **macOS-Besonderheiten:** Docker Desktop und Bash 3.2. Die Skripte sind auf Bash 3.2 ausgelegt, liefen aber nur unter Linux.
+- **Der `apt-get`-Schritt im `Dockerfile.pi`:** Die Debian-Mirrors waren aus der Build-Umgebung gesperrt. Getestet wurde eine Variante auf `node:24-bookworm` (git und python3 vorinstalliert) mit identischen übrigen Schritten. Beim ersten Build auf deinem Rechner läuft der apt-Schritt zum ersten Mal. (Am 10.11. dasselbe Bild; siehe das Update oben.)
+- **macOS-Besonderheiten:** Docker Desktop und der Schlüsselbund. Die Skripte sind auf Bash 3.2 ausgelegt; seit 10.11. laufen ihre Tests auch unter Bash 3.2.57, allerdings als Linux-Build, nicht auf einem Mac.
 - **Interaktive TUI:** Fußzeile, `/subagents-fleet` und Benachrichtigungen. Getestet wurden Print-, JSON- und RPC-Modus.

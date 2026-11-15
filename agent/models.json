@@ -8,6 +8,13 @@
           "data_collection": "deny",
           "require_parameters": true
         }
+      },
+      "modelOverrides": {
+        "moonshotai/kimi-k3.1-pro": {
+          "compat": {
+            "requiresReasoningContentOnAssistantMessages": true
+          }
+        }
       }
     }
   }

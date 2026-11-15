@@ -1,5 +1,6 @@
 {
   "command": "uv run ruff check . && uv run pyright && uv run pytest -q",
   "maxRepairRounds": 2,
-  "timeoutSeconds": 600
+  "timeoutSeconds": 600,
+  "tamperCheck": true
 }
