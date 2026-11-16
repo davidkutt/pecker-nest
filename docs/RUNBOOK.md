@@ -11,12 +11,12 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | Meilenstein | ✅ Gebaut und getestet | 👤 Dein Teil |
 | --- | --- | --- |
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
-| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 in undertext (M7); die Pilot-Repos bleiben nur noch E2E-Material |
-| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in undertext (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
+| M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 im ersten echten Projekt, pecker-grove M3c.2 (M7); die Pilot-Repos bleiben nur noch E2E-Material |
+| M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in pecker-grove (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
 | M3 RAG | Skill `best-practices`, Server `kb` (pecker-grove) in `mcp.json` mit OAuth-Anmeldung, Regel „Knowledge base first“ in `APPEND_SYSTEM.md`, Prüfzeile in `doctor.sh`; Container schaltet lokale MCP-Server ab | Voraussetzung in grove (Realm kennt Pi, M3c.0-Handcheck), dann grove starten, `pi mcp login kb`, Tests 6–7 |
-| M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten M1-Feature |
-| M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 M1-Schritten |
-| M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | undertext M1 mit nest bauen, nach jeder Session eine Übergabe |
+| M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten Feature (M7) |
+| M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 echten Schritten |
+| M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | pecker-grove M3c.2 mit nest bauen, danach undertext, sobald M2 geschrieben ist; nach jeder Session eine Übergabe |
 | M6 Headless | `Dockerfile.pi`, `build-image.sh` (Image mit Commit-Label), `pi-run.sh` (eigener Container-Key aus dem Schlüsselbund, startet kein veraltetes Image), `task.sh` (Setup, `pi update --models`, Pi, Gate-Nachprüfung) | Container-Key in den Schlüsselbund, Image bauen, Tests 10–11 |
 | Neu | – | Tests 12 (Provider-Routing) und 13 (Caching) |
 
@@ -142,7 +142,7 @@ Entschieden: Die Knowledge Base läuft nur lokal und ist per MCP erreichbar; Aut
 
 Die Knowledge Base ist [pecker-grove](https://github.com/davidkutt/pecker-grove): deine Markdown-Notizen und die Webseiten, die du dort gespeichert hast. Sie ist unter `http://localhost:8000/mcp` erreichbar, solange du grove gestartet hast.
 
-Entschieden am 12.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, per OAuth über Keycloak mit seinem eigenen Client ID Metadata Document (`https://pi.dev/oauth/client.json`). Es gibt kein Token zum Einfügen und keine Variable `KB_TOKEN`. groves Tokens leben fünf Minuten; Pi erneuert sie selbst und legt sie in `~/.pi/agent/mcp-auth.json` ab. Die Datei liegt nicht im Repo, und das Safety-Gate behandelt sie als Secret. Herleitung und verworfene Alternativen stehen in [research/grove-kb-auth.md](research/grove-kb-auth.md).
+Entschieden am 12.11., angepasst am 15.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, per OAuth über Keycloak mit einem Client ID Metadata Document. Pis eigenes Dokument (`https://pi.dev/oauth/client.json`) kann Keycloak 26.8 nicht lesen; nest nimmt deshalb eine Kopie davon auf GitHub Pages (`https://davidkutt.github.io/pecker-nest/oauth/pi-client.json`, Branch `gh-pages`) als `oauth.clientId`. Es gibt kein Token zum Einfügen und keine Variable `KB_TOKEN`. groves Tokens leben fünf Minuten; Pi erneuert sie selbst und legt sie in `~/.pi/agent/mcp-auth.json` ab. Die Datei liegt nicht im Repo, und das Safety-Gate behandelt sie als Secret. Herleitung und verworfene Alternativen stehen in [research/grove-kb-auth.md](research/grove-kb-auth.md).
 
 **Schon erledigt** (nichts davon musst du eintragen):
 
@@ -152,7 +152,7 @@ Entschieden am 12.11.: Pi meldet sich bei grove an wie Claude Code und VS Code, 
 
 **Voraussetzung in grove** (nicht in diesem Repo, der Planungschat macht daraus eine grove-Aufgabe):
 
-- Der Realm kennt Pi: eine dritte Client-Policy für `pi.dev`, neben `claude.ai` und `vscode.dev`.
+- Der Realm kennt Pi: eine dritte Client-Policy `mcp-pi` für `davidkutt.github.io`, neben `claude.ai` und `vscode.dev`.
 - groves Handcheck M3c.0 ist bestanden: Claude Code meldet sich an `/mcp` an, und eine Suche liefert Treffer.
 
 Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-Formulars. nest arbeitet dann wie bisher ohne Knowledge Base.
@@ -169,7 +169,7 @@ Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-F
    pi mcp login kb
    ```
 
-   Der Browser öffnet Keycloak. Melde dich an und erlaube den Zugriff. Das erste Mal braucht Internet, weil Keycloak Pis Dokument von `pi.dev` lädt. In einer laufenden Pi-Session geht dasselbe mit `/mcp` → `kb` → „Sign in“. Die Anmeldung gilt für alle Pi-Sessions und hält, bis sie 30 Tage ungenutzt war. Abmelden: `pi mcp logout kb`.
+   Der Browser öffnet Keycloak. Melde dich an und erlaube den Zugriff. Das erste Mal braucht Internet, weil Keycloak das Dokument von `davidkutt.github.io` lädt. In einer laufenden Pi-Session geht dasselbe mit `/mcp` → `kb` → „Sign in“. Die Anmeldung gilt für alle Pi-Sessions und hält, bis sie 30 Tage ungenutzt war. Abmelden: `pi mcp logout kb`.
 
 3. Prüfen:
 
@@ -191,7 +191,7 @@ Im Container ist die Knowledge Base aus (M6). Die Regel „If the knowledge base
 
 Schon erledigt: pi-subagents ist geprüft und auf 0.87.0 gepinnt (Befund in [v1-notes.md](v1-notes.md#pi-subagents)). Die vier Rollen liegen in `agent/agents/`. Nicht genutzte Builtins (externe CLIs, Web-Recherche) sind deaktiviert.
 
-1. Am ersten echten Feature in undertext M1 (siehe M7), oder auf einem Branch einen kleinen Bug einbauen und committen.
+1. Am ersten echten Feature im laufenden Projekt (M7, zuerst pecker-grove M3c.2), oder auf einem Branch einen kleinen Bug einbauen und committen.
 2. **Test 8**, in der TUI:
 
    ```text
@@ -240,9 +240,9 @@ Steuernachrichten und Follow-ups behalten die aktuelle Stufe; Wiederholungen nac
 2. Nach ein paar Sessions die Session-Reports ansehen (Abschnitt „Router“ und „Tools“): Wie oft musste GLM einspringen, und warum? Springt GLM zu oft ein, ist Flash für die Aufgabe zu schwach (dann `/hard` für solche Aufgaben). Springt GLM nie ein, obwohl Flash hängt, sind die Schwellen zu hoch. Die Schwellen stehen in `extensions/lib/router-logic.ts`.
 3. Ohne Router arbeiten: `/model openrouter/deepseek/deepseek-v4.1-flash-1017` oder `/model openrouter/z-ai/glm-5.3`. Pi schreibt die Auswahl in `agent/settings.json` (Symlink); `git checkout agent/settings.json` stellt den Standard wieder her.
 
-### Modellvergleich GLM gegen Kimi (👤 an 2–3 M1-Schritten)
+### Modellvergleich GLM gegen Kimi (👤 an 2–3 echten Schritten)
 
-Entschieden am 08.11.: Kimi K3.1 Pro wird an zwei, drei Schritten gegen GLM 5.3 getestet, GLM bleibt der Standard. Nimm echte M1-Schritte, keine erfundenen Aufgaben, und möglichst solche, bei denen GLM sich bisher schwer getan hat. Claude Code trägt die Ergebnisse in die Feldnotiz ein (`/nest-handoff`, Abschnitt „Model comparison“).
+Entschieden am 08.11.: Kimi K3.1 Pro wird an zwei, drei Schritten gegen GLM 5.3 getestet, GLM bleibt der Standard. Nimm echte Schritte aus dem laufenden Projekt (M7), keine erfundenen Aufgaben, und möglichst solche, bei denen GLM sich bisher schwer getan hat. Claude Code trägt die Ergebnisse in die Feldnotiz ein (`/nest-handoff`, Abschnitt „Model comparison“).
 
 **Vergleich beim Planen** (je Schritt):
 
@@ -313,36 +313,43 @@ Der erste Lauf nutzt die Rolle wie konfiguriert (GLM 5.3, `max`), der zweite üb
 
 Exit-Codes von `pi-run.sh`: 0 ok, 2 Gate nach dem Lauf rot, 3 Setup fehlgeschlagen, 64 falscher Aufruf oder kein Container-Key, 65 Image fehlt oder ist veraltet, sonst der Exit-Code von Pi.
 
-## M7 – Dogfooding mit Claude: undertext M1 (👤)
+## M7 – Dogfooding mit Claude: pecker-grove M3c.2, danach undertext (👤)
 
-Entschieden am 07.11.: nest baut echte Projekte, zuerst undertext M1, danach pecker-grove M3c.2. pecker-beak bleibt bei Claude Code (sein `AGENTS.md` und `.pi/settings.json` sind für den Betrieb von Beak, nicht für den Bau). pecker-nest selbst wird nie mit nest gebaut: Das Safety-Gate sperrt Schreibzugriffe auf dieses Repo und auf Pis Agent-Verzeichnis.
+Entschieden am 07.11.: nest baut echte Projekte statt der Pilot-Repos. Geändert am 08.11.: Das erste Projekt ist pecker-grove M3c.2 („Feedback becomes eval items“, `plan-daily-use.md` §3 in grove), nicht undertext M1. undertext folgt, sobald M2 geschrieben ist. pecker-beak bleibt bei Claude Code (sein `AGENTS.md` und `.pi/settings.json` sind für den Betrieb von Beak, nicht für den Bau). pecker-nest selbst wird nie mit nest gebaut: Das Safety-Gate sperrt Schreibzugriffe auf dieses Repo und auf Pis Agent-Verzeichnis.
 
 **Einmalig:**
 
 1. `~/dev/pecker-nest/scripts/link.sh --claude` verlinkt zusätzlich die Claude-Code-Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/`.
-2. In undertext vor der ersten nest-Session die Schutzregeln anlegen:
+2. pecker-grove bringt seine Schutzregeln und sein Gate selbst mit: `.pi/protect.json` und `.pi/gate.json` (`pnpm lint && pnpm test`, ohne Docker-Stack und ohne Netz) liegen in grove im Repo. `~/dev/pecker-nest/scripts/doctor.sh --repo ~/dev/pecker-grove` prüft beide und den Kontext `AGENTS.md`.
+3. In pecker-grove `pi` starten und `/trust`.
+
+**Für undertext, sobald es drankommt:**
+
+1. Vor der ersten nest-Session die Schutzregeln anlegen:
 
    ```bash
    mkdir -p ~/dev/undertext/.pi
    cp ~/dev/pecker-nest/templates/undertext/protect.json ~/dev/undertext/.pi/protect.json
    ```
 
-   Sie verbieten dem Agenten, die zurückgehaltenen Samples zu lesen oder zu schreiben (`evals/samples/*test*.jsonl`, `*holdout*`, `*gaps*`, dazu `evals/import/**`, weil das Mapping des Konverters deren Quellen nennt), `CLAUDE.md` und die Milestone-Briefs zu ändern und `--split test|holdout|gaps` auszuführen. Die Globs passen zu undertexts echtem Layout (`harness-holdout.jsonl`, `harness-gaps.jsonl` aus PR #2) und greifen auch für Davids Test-Split, sobald er angelegt wird. Ein Unit-Test in pecker-nest prüft sie gegen diese Dateinamen. Die Datei gehört in den ersten M1-PR.
-3. Nach M1-Schritt 1 (pnpm-Workspace steht) das Gate anlegen: `cp ~/dev/pecker-nest/templates/undertext/gate.json ~/dev/undertext/.pi/gate.json` (`pnpm lint && pnpm test`). Vorher würde jeder Gate-Lauf an fehlenden Skripten scheitern. Der Agent darf `.pi/` nicht schreiben; das machst du.
-4. In undertext `pi` starten und `/trust`.
+   Sie verbieten dem Agenten, die zurückgehaltenen Samples zu lesen oder zu schreiben (`evals/samples/*test*.jsonl`, `*holdout*`, `*gaps*`, dazu `evals/import/**`, weil das Mapping des Konverters deren Quellen nennt), `CLAUDE.md` und die Milestone-Briefs zu ändern und `--split test|holdout|gaps` auszuführen. Die Globs passen zu undertexts echtem Layout (`harness-holdout.jsonl`, `harness-gaps.jsonl` aus PR #2) und greifen auch für Davids Test-Split, sobald er angelegt wird. Ein Unit-Test in pecker-nest prüft sie gegen diese Dateinamen. Die Datei gehört in den ersten PR, den nest in undertext öffnet.
+2. Sobald der pnpm-Workspace steht, das Gate anlegen: `cp ~/dev/pecker-nest/templates/undertext/gate.json ~/dev/undertext/.pi/gate.json` (`pnpm lint && pnpm test`). Vorher würde jeder Gate-Lauf an fehlenden Skripten scheitern. Der Agent darf `.pi/` nicht schreiben; das machst du.
+3. In undertext `pi` starten und `/trust`.
+4. Der Test-Split läuft am Ende eines Milestones einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
 
 **Jede Session:**
 
-1. Terminal 1, Claude Code in `~/dev/undertext`: `/nest-supervise docs/milestones/M1.md`. Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff. In die Notiz kommt die geprüfte Konfiguration: pecker-nest-Commit, Pi-Version, Denkstufe je Stufe und Rolle, starkes Modell, und ob sich der Commit gegenüber der vorigen Notiz dieses Repos geändert hat. Claude tippt diese Zeile nicht selbst, sie kommt aus `node ~/dev/pecker-nest/scripts/field-note.ts config --repo undertext`. Nur damit ist ein Vorher-nachher-Vergleich gültig.
-2. Terminal 2, Pi in `~/dev/undertext`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären. Bei Fragen zu Prefill, Export oder Dateiformaten liest der Skill zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt.
+Die Beispiele nennen pecker-grove; für undertext gilt dasselbe mit `~/dev/undertext` und seinem Milestone-Brief.
+
+1. Terminal 1, Claude Code in `~/dev/pecker-grove`: `/nest-supervise M3c.2 in plan-daily-use.md` (Aufgabe, Brief oder Milestone; grove hat für M3c.2 keine eigene Brief-Datei, der Abschnitt im Plan ist der Brief). Claude legt die Feldnotiz an (`~/dev/pecker-nest/field-notes/`, lokal, nicht versioniert) und protokolliert jeden Eingriff. In die Notiz kommt die geprüfte Konfiguration: pecker-nest-Commit, Pi-Version, Denkstufe je Stufe und Rolle, starkes Modell, und ob sich der Commit gegenüber der vorigen Notiz dieses Repos geändert hat. Claude tippt diese Zeile nicht selbst, sie kommt aus `node ~/dev/pecker-nest/scripts/field-note.ts config --repo pecker-grove`. Nur damit ist ein Vorher-nachher-Vergleich gültig.
+2. Terminal 2, Pi in `~/dev/pecker-grove`: arbeiten wie gewohnt (`/plan`, `/implement 1`, …). Unklare Aufgaben vorher mit `/hard` und `/skill:grill-me <Idee>` auf GLM klären. Bei Fragen zu Prefill, Export oder Dateiformaten liest der Skill zuerst die Datenmodelle und Loader, die das Feature bedient, und fragt aus dem, was der Code verlangt.
 3. Danach in Claude Code `/nest-handoff`. Claude ruft den Session-Report auf, prüft Diff und Akzeptanzkriterien, zählt die Mängel, die nests eigenes Gate und Review passiert haben (Bugs, abgeschwächte Tests, Regelbrüche), schließt die Notiz und gibt den Abschnitt „For the planning chat“ aus. Den gibst du dem Planungschat.
 4. Ging etwas schief: `/rewind` in Pi stellt den Arbeitsstand vor einem deiner Prompts wieder her.
 
-**Sessions über mehrere Tage:** Eine Feldnotiz ist offen, bis in ihrem Abschnitt „Session“ ein End-HEAD steht. Hörst du nur für heute auf, sag das Claude; die Notiz bleibt offen. Am nächsten Tag setzt `/nest-supervise` sie fort, statt eine neue anzulegen, und `/nest-handoff` nimmt die offene Notiz des Repos, auch wenn sie Tage alt ist. Der Session-Report zählt dann alle Pi-Sessions seit dem Start der Notiz (`--since <Datum>`). Welche Notiz offen ist, zeigt `node ~/dev/pecker-nest/scripts/field-note.ts open --repo undertext` (derselbe Befehl in bash, zsh und fish).
+**Sessions über mehrere Tage:** Eine Feldnotiz ist offen, bis in ihrem Abschnitt „Session“ ein End-HEAD steht. Hörst du nur für heute auf, sag das Claude; die Notiz bleibt offen. Am nächsten Tag setzt `/nest-supervise` sie fort, statt eine neue anzulegen, und `/nest-handoff` nimmt die offene Notiz des Repos, auch wenn sie Tage alt ist. Der Session-Report zählt dann alle Pi-Sessions seit dem Start der Notiz (`--since <Datum>`). Welche Notiz offen ist, zeigt `node ~/dev/pecker-nest/scripts/field-note.ts open --repo pecker-grove` (derselbe Befehl in bash, zsh und fish).
 
-Der Test-Split läuft am Ende von M1 einmal, von dir: `!pnpm eval --split test` in Pi oder im Terminal.
 
-**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/undertext` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten. Der Befehl ist in bash, zsh und fish derselbe.
+**Session-Report von Hand:** `node ~/dev/pecker-nest/scripts/session-report.ts --cwd ~/dev/pecker-grove` (letzte Session) oder `--since 8h` (alle Sessions des Tages), `--json` für Rohdaten. Der Befehl ist in bash, zsh und fish derselbe.
 
 Für die nächsten Entscheidungen im Planungschat zählen drei Stellen des Reports:
 
@@ -400,7 +407,7 @@ Die zweite und die dritte Zeile brauchst du nur für Headless-Läufe im Containe
 - **Die Knowledge Base** hat eine eigene Zeile, die nie ein `FAIL` ist: `PASS`, wenn grove antwortet und Pi angemeldet ist, sonst `WARN` mit dem Befehl, der grove startet, oder mit `pi mcp login kb`. Dafür ruft das Skript `pi mcp list --json` auf; Pi erneuert dabei gegebenenfalls sein eigenes Token.
 - **Mit `--repo <pfad>`** prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Beide Schalter lassen sich kombinieren.
 
-Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (undertext, später pecker-grove).
+Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (pecker-grove, später undertext).
 
 ## Entschieden
 
@@ -420,11 +427,13 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (unde
 | 08.11.2026 | Ersatz für GLM 5.3 | Kimi K3.1 Pro kommt als Option dazu (`/strong kimi`) und wird an 2–3 M1-Schritten gegen GLM getestet. GLM bleibt Standard, damit die Übergabezahlen vergleichbar bleiben. Entscheidung danach im Planungschat. |
 | 08.11.2026 | DeepSeek V4.1 Pro | Beobachten, kein Erscheinungsdatum. Nichts einbauen, bis es da ist. |
 | 08.11.2026 | Claude Codes Konfiguration | `${CLAUDE_CONFIG_DIR:-~/.claude}` gilt für das Safety-Gate als Harness: nest ändert die Einstellungen und Skills seines Aufsehers nicht. |
+| 08.11.2026 | Erstes Projekt | pecker-grove M3c.2 statt undertext M1. undertext folgt, sobald M2 geschrieben ist. Ändert die Reihenfolge vom 07.11. |
 | 08.11.2026 | PR für nests Arbeit | Claude Code darf auf Bitte pushen und den PR eröffnen (Kategorie `admin`, zählt nicht gegen nest). Mergen bleibt bei David. |
 | 10.11.2026 | Denkstufe des starken Modells | Immer `max`: `/plan`, Eskalationen, `/hard` und der Reviewer. Flash bleibt auf `high`. |
 | 10.11.2026 | Container-Key | Liegt im macOS-Schlüsselbund (`pecker-nest-container-key`). `pi-run.sh` nimmt den interaktiven Key nie von selbst. |
 | 10.11.2026 | Veraltetes Image | `pi-run.sh` startet nur ein Image, das `scripts/build-image.sh` aus dem aktuellen Commit gebaut hat. |
-| 12.11.2026 | Anmeldung an der Knowledge Base | Pi meldet sich bei grove per OAuth mit seinem Client ID Metadata Document an (`oauth.clientRegistration: "cimd"`, Scope `kb:read offline_access`). Kein Token und kein Secret im Repo oder in einer Shell-Konfiguration; grove bekommt eine dritte Client-Policy für `pi.dev`. Begründung: [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| 12.11.2026 | Anmeldung an der Knowledge Base | Pi meldet sich bei grove per OAuth mit einem Client ID Metadata Document an (Scope `kb:read offline_access`). Kein Token und kein Secret im Repo oder in einer Shell-Konfiguration. Begründung: [research/grove-kb-auth.md](research/grove-kb-auth.md). |
+| 15.11.2026 | Eigenes Metadata Document | Keycloak 26.8 lehnt Pis Dokument auf `pi.dev` ab (unbekanntes Feld `token_endpoint_auth_methods_supported`). nest veröffentlicht eine Kopie ohne dieses Feld auf GitHub Pages und setzt sie als `oauth.clientId`; grove bekommt die Client-Policy `mcp-pi` für `davidkutt.github.io`. Siehe [v1-notes.md](v1-notes.md). |
 | 12.11.2026 | Knowledge Base in Subagents | Nicht in V1. `planner` und `reviewer` bleiben ohne `mcp:kb`-Tool, weil sie sonst ohne laufendes grove nicht starten. |
 
 Alle offenen Fragen des Plans sind damit entschieden. Bewusst offen bis nach der Live-Probe und den ersten echten Sessions: Provider festlegen (`only`, `quantizations`), `DEFAULT_STRONG`, Flashs Denkstufe, die Eskalationsschwellen, Preserved Thinking für GLM und der Vergleich mit pi-project-profile.
