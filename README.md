@@ -40,12 +40,15 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)
 │   └── prompts/              review-chain and its four steps
 ├── claude/skills/            Claude Code: /nest-supervise, /nest-handoff (linked by scripts/link.sh --claude)
+├── cursor/                   Cursor: node.sh starts hook scripts with the Node recorded at link time;
+│                             capture/ is the temporary capture hook of docs/research/cursor-hooks.md
 ├── field-notes/              local session notes (git-ignored except README and TEMPLATE)
 ├── templates/                AGENTS.*.md, gate.*.json; undertext/ (gate.json, protect.json)
 ├── docker/                   Dockerfile.pi, pi-run.sh (container key from the Keychain, refuses a stale
 │                             image), task.sh
 ├── scripts/
-│   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude)
+│   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude);
+│   │                         --cursor-capture / --cursor-capture-off install and remove Cursor's capture hook
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
 │   │                         --docker adds the daemon and image checks for headless runs; the knowledge
 │   │                         base only ever warns

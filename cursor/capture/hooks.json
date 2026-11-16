@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "hooks": {
+    "workspaceOpen": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts workspaceOpen",
+        "timeout": 10
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts sessionStart",
+        "timeout": 10
+      },
+      {
+        "command": "@NEST_DIR@/cursor/capture/probe.sh sessionStart absolute",
+        "timeout": 10
+      },
+      {
+        "command": "./hooks/pecker-nest-probe.sh sessionStart relative",
+        "timeout": 10
+      },
+      {
+        "command": "~/.cursor/hooks/pecker-nest-probe.sh sessionStart tilde",
+        "timeout": 10
+      },
+      {
+        "command": "$HOME/.cursor/hooks/pecker-nest-probe.sh sessionStart home-variable",
+        "timeout": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts sessionEnd",
+        "timeout": 10
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts beforeSubmitPrompt",
+        "timeout": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts preToolUse",
+        "timeout": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts postToolUse",
+        "timeout": 10
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts postToolUseFailure",
+        "timeout": 10
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts subagentStart",
+        "timeout": 10
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts subagentStop",
+        "timeout": 10
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts beforeShellExecution",
+        "timeout": 10
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts afterShellExecution",
+        "timeout": 10
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts beforeMCPExecution",
+        "timeout": 10
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts afterMCPExecution",
+        "timeout": 10
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts beforeReadFile",
+        "timeout": 10
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts afterFileEdit",
+        "timeout": 10
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts preCompact",
+        "timeout": 10
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts afterAgentResponse",
+        "timeout": 10
+      }
+    ],
+    "stop": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh capture/capture.ts stop",
+        "timeout": 10,
+        "loop_limit": 2
+      }
+    ]
+  }
+}
