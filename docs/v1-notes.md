@@ -1,6 +1,16 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 15.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 17.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 17.11. (Supervision-Skills für Cursor und Pi), dann der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 17.11.2026: Supervision-Skills für Cursor und Pi
+
+Vorbereitung auf den Ausstieg aus Claude Code am 06.12.2026. `nest-supervise` und `nest-handoff` liegen jetzt in `skills/` statt in `claude/skills/` (per `git mv`). `scripts/link.sh` verlinkt sie mit `--claude`, `--cursor` (`~/.cursor/skills/`) und `--pi` (`${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/`, das Verzeichnis, das Pi 1.5.0 neben `~/.agents/skills/` für eigene Skills liest). Pis Package lädt `skills/` weiter, lässt die beiden aber mit `"!skills/nest-*"` aus: sonst sähe jede Worker-Session und das Docker-Image sie, und `--pi` ergäbe eine Namenskollision. In Skill-Verzeichnissen legt `link.sh` keine Sicherung an (`<name>.bak.*` würde als zweite Kopie des Skills geladen); Fremdes bleibt stehen und erscheint als `foreign`. `claude/skills/` hält bis zum Ausstieg zwei Symlinks, damit Links von vor dem Umzug weiter funktionieren. Die Skill-Texte nennen jetzt beide Befehlsformen und kommen ohne `$ARGUMENTS` aus.
+
+**Grenze in Pi:** Das Safety-Gate zählt dieses Repo zur Harness und lehnt Schreibzugriffe unter `~/dev/pecker-nest` ab, die Feldnotiz eingeschlossen. Die Skills sagen dem Aufseher in Pi deshalb, David den Text der Notiz zu geben, statt die Datei zu schreiben.
+
+**Getestet:** `npm run check` (neu `test/link.test.ts`: Links für alle drei Werkzeuge, idempotent, eigener alter Link ersetzt, Fremdes unangetastet, Pis Package ohne die beiden Skills), `npm run e2e`.
+
+**Nicht getestet:** ob Cursor und `cursor-agent` die Skills aus `~/.cursor/skills/` anbieten und ob Cursor die doppelte Sicht über `~/.claude/skills/` zusammenfasst; eine echte Pi-Session mit `/skill:nest-supervise`.
 
 ## Nachtrag 15.11.2026: Übergabe vom 10.11. auf dem Mac nachgeprüft
 

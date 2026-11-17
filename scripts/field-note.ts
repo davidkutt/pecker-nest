@@ -1,5 +1,5 @@
 /**
- * Facts for the field notes of supervised sessions (claude/skills/nest-supervise, nest-handoff),
+ * Facts for the field notes of supervised sessions (skills/nest-supervise, nest-handoff),
  * read from the repository instead of typed by hand. A before-and-after comparison of two sessions
  * is only valid when the note says exactly which configuration ran.
  *

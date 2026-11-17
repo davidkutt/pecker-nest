@@ -3,15 +3,21 @@
 #
 #   scripts/link.sh            link into ${PI_CODING_AGENT_DIR:-~/.pi/agent}
 #   scripts/link.sh --check    only report what is linked, change nothing
-#   scripts/link.sh --claude   also link the Claude Code skills (nest-supervise, nest-handoff)
-#                              into ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
+#
+# The supervision skills skills/nest-supervise and skills/nest-handoff, per tool, combinable:
+#   scripts/link.sh --claude   also into ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
+#   scripts/link.sh --cursor   also into ~/.cursor/skills
+#   scripts/link.sh --pi       also into ${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills
 #
 #   scripts/link.sh --cursor-capture       only this: install the capture hook of
 #                                          docs/research/cursor-hooks.md as ~/.cursor/hooks.json
 #   scripts/link.sh --cursor-capture-off   only this: remove it again; the capture log stays
 #   scripts/link.sh --check --cursor-capture   report whether the capture hook is installed
 #
-# Existing regular files are moved aside as <name>.bak.<timestamp>, never deleted.
+# Existing regular files are moved aside as <name>.bak.<timestamp>, never deleted. Skill links
+# move nothing aside, because a backup in a skills directory loads as a second copy of the skill:
+# anything there that is not a link into this checkout is reported as `foreign` and left as it is
+# (exit code 1); an older link into this checkout (claude/skills/ before the move) is replaced.
 # auth.json, sessions and other runtime state stay where they are.
 #
 # The capture hook writes ~/.cursor/hooks.json from cursor/capture/hooks.json with this checkout's
@@ -31,9 +37,12 @@ NEST_CONFIG_DIR="$HOME/.config/pecker-nest"
 NEST_STATE_DIR="$HOME/.local/state/pecker-nest/cursor"
 CHECK_ONLY=0
 LINK_CLAUDE=0
+LINK_CURSOR=0
+LINK_PI=0
+SUPERVISION_SKILLS="nest-supervise nest-handoff"
 CURSOR_CAPTURE=""
 usage() {
-  echo "usage: scripts/link.sh [--check] [--claude]" >&2
+  echo "usage: scripts/link.sh [--check] [--claude] [--cursor] [--pi]" >&2
   echo "       scripts/link.sh [--check] --cursor-capture | --cursor-capture-off" >&2
   exit 2
 }
@@ -41,13 +50,15 @@ for arg in "$@"; do
   case "$arg" in
     --check) CHECK_ONLY=1 ;;
     --claude) LINK_CLAUDE=1 ;;
+    --cursor) LINK_CURSOR=1 ;;
+    --pi) LINK_PI=1 ;;
     --cursor-capture) [[ -z "$CURSOR_CAPTURE" ]] || usage; CURSOR_CAPTURE=on ;;
     --cursor-capture-off) [[ -z "$CURSOR_CAPTURE" ]] || usage; CURSOR_CAPTURE=off ;;
     *) usage ;;
   esac
 done
 # The capture switches stand alone: they are temporary and leave Pi's links as they are.
-if [[ -n "$CURSOR_CAPTURE" ]] && (( LINK_CLAUDE )); then usage; fi
+if [[ -n "$CURSOR_CAPTURE" ]] && (( LINK_CLAUDE + LINK_CURSOR + LINK_PI )); then usage; fi
 
 # agent/settings.json loads the package from ~/dev/pecker-nest. A clone elsewhere would
 # link settings that point at a missing package.
@@ -81,6 +92,35 @@ link() {
   fi
   ln -s "$src" "$dest"
   echo "linked  $dest -> $src"
+}
+
+link_skill() {
+  local src="$1" dest="$2"
+  if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+    echo "ok      $dest"
+    return
+  fi
+  if [[ -e "$dest" || -L "$dest" ]] && [[ ! -L "$dest" || "$(readlink "$dest")" != "$NEST_DIR"/* ]]; then
+    echo "foreign $dest is not a link into $NEST_DIR; left as it is"
+    status=1
+    return
+  fi
+  if (( CHECK_ONLY )); then
+    echo "missing $dest -> $src"
+    status=1
+    return
+  fi
+  if [[ -L "$dest" ]]; then rm "$dest"; fi
+  ln -s "$src" "$dest"
+  echo "linked  $dest -> $src"
+}
+
+link_skills() {
+  local dir="$1" name
+  (( CHECK_ONLY )) || mkdir -p "$dir"
+  for name in $SUPERVISION_SKILLS; do
+    link_skill "$NEST_DIR/skills/$name" "$dir/$name"
+  done
 }
 
 # ---------------------------------------------------------------- Cursor capture hook
@@ -206,13 +246,10 @@ for file in "$NEST_DIR"/agent/prompts/*.md; do
   link "$file" "$AGENT_DIR/prompts/$(basename "$file")"
 done
 
-# Claude Code skills for supervising nest sessions and writing handoffs (field-notes/README.md).
-if (( LINK_CLAUDE )); then
-  (( CHECK_ONLY )) || mkdir -p "$CLAUDE_DIR/skills"
-  for dir in "$NEST_DIR"/claude/skills/*/; do
-    dir="${dir%/}"
-    link "$dir" "$CLAUDE_DIR/skills/$(basename "$dir")"
-  done
-fi
+# Skills for supervising nest sessions and writing handoffs (field-notes/README.md). Pi's package
+# leaves them out (package.json: "!skills/nest-*"), so each tool gets them only through these links.
+if (( LINK_CLAUDE )); then link_skills "$CLAUDE_DIR/skills"; fi
+if (( LINK_CURSOR )); then link_skills "$CURSOR_DIR/skills"; fi
+if (( LINK_PI )); then link_skills "$AGENT_DIR/skills"; fi
 
 exit "$status"

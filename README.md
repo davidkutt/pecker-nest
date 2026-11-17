@@ -28,7 +28,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   │                         file (from the stream, no extra request), for the session report
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested
-├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual)
+├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual);
+│                             nest-supervise, nest-handoff for the supervising agent: Pi's package leaves
+│                             them out ("!skills/nest-*"), scripts/link.sh links them per tool
 ├── prompts/                  /plan, /implement <step>, /review
 ├── agent/                    linked into ~/.pi/agent by scripts/link.sh
 │   ├── settings.json         models, tools, compaction, packages (pinned pi-subagents), subagent defaults
@@ -39,7 +41,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   │                         through OAuth, no token in the file)
 │   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)
 │   └── prompts/              review-chain and its four steps
-├── claude/skills/            Claude Code: /nest-supervise, /nest-handoff (linked by scripts/link.sh --claude)
+├── claude/skills/            symlinks to skills/nest-*, so links made before the move keep working;
+│                             goes with the Claude Code exit (06.12.2026)
 ├── cursor/                   Cursor: node.sh starts hook scripts with the Node recorded at link time;
 │                             capture/ is the temporary capture hook of docs/research/cursor-hooks.md
 ├── field-notes/              local session notes (git-ignored except README and TEMPLATE)
@@ -47,7 +50,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── docker/                   Dockerfile.pi, pi-run.sh (container key from the Keychain, refuses a stale
 │                             image), task.sh
 ├── scripts/
-│   ├── link.sh               links agent/ into Pi's agent directory (and claude/skills with --claude);
+│   ├── link.sh               links agent/ into Pi's agent directory; --claude, --cursor, --pi also link the
+│   │                         supervision skills into that tool's skills directory;
 │   │                         --cursor-capture / --cursor-capture-off install and remove Cursor's capture hook
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
 │   │                         --docker adds the daemon and image checks for headless runs; the knowledge
@@ -75,6 +79,34 @@ pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
 ```
 
 In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
+
+## Supervision skills in Claude Code, Cursor and Pi
+
+`nest-supervise` and `nest-handoff` live in `skills/` (field-notes/README.md). `scripts/link.sh` links them into each tool you name, combinable and safe to repeat. It never moves or replaces anything in a skills directory that is not its own link; that shows as `foreign` and exit code 1.
+
+| Flag | Target | Command in the tool |
+| --- | --- | --- |
+| `--claude` | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/` | `/nest-supervise`, `/nest-handoff` |
+| `--cursor` | `~/.cursor/skills/` | `/nest-supervise`, `/nest-handoff` |
+| `--pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/` | `/skill:nest-supervise`, `/skill:nest-handoff` |
+
+bash:
+
+```bash
+~/dev/pecker-nest/scripts/link.sh --cursor --pi           # add --claude until the Claude Code exit
+~/dev/pecker-nest/scripts/link.sh --check --cursor --pi   # change nothing, report
+for d in ~/.cursor/skills/nest-* ~/.pi/agent/skills/nest-*; do echo "$d -> $(readlink "$d")"; done
+```
+
+fish:
+
+```fish
+~/dev/pecker-nest/scripts/link.sh --cursor --pi           # add --claude until the Claude Code exit
+~/dev/pecker-nest/scripts/link.sh --check --cursor --pi   # change nothing, report
+for d in ~/.cursor/skills/nest-* ~/.pi/agent/skills/nest-*; echo "$d -> "(readlink $d); end
+```
+
+Cursor also loads `~/.claude/skills/`, so with `--claude` and `--cursor` both, Cursor sees the two skills twice until the Claude links are gone. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field notes included; the skills then hand David the note's text instead.
 
 ## Checks
 
