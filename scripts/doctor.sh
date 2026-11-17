@@ -165,7 +165,10 @@ if link_report="$("$nest_dir/scripts/link.sh" --check --claude 2>&1)"; then
   pass "links: agent files and Claude Code skills are linked (scripts/link.sh --check --claude)"
 else
   missing="$(echo "$link_report" | grep -c '^missing')"
-  if [[ "$missing" -gt 0 ]]; then
+  foreign="$(echo "$link_report" | grep -m 1 '^foreign' || true)"
+  if [[ -n "$foreign" ]]; then
+    fail "links: ${foreign#foreign }. Fix: move it away, then $nest_dir/scripts/link.sh --claude"
+  elif [[ "$missing" -gt 0 ]]; then
     fail "links: $missing link(s) missing or pointing elsewhere. Fix: $nest_dir/scripts/link.sh --claude"
   else
     fail "links: scripts/link.sh --check --claude failed ($(echo "$link_report" | head -1)). Fix: $nest_dir/scripts/link.sh --claude"

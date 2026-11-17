@@ -1,6 +1,6 @@
 ---
 name: nest-supervise
-description: Start supervising a pecker-nest (Pi) session in the current repository. Claude watches and logs interventions instead of building. Use when David says he is starting a nest session here.
+description: Start supervising a pecker-nest (Pi) session in the current repository. You watch and log interventions instead of building. Use when David says he is starting a nest session here.
 argument-hint: "[task, brief path or milestone]"
 disable-model-invocation: true
 ---
@@ -11,9 +11,11 @@ nest (Pi with DeepSeek V4.1 Flash and a strong model, GLM 5.3 or Kimi K3.1 Pro, 
 
 `<repo>` below is the repository's directory name (`basename "$PWD"`). The commands are the same in bash, zsh and fish.
 
+Commands: `/nest-supervise` and `/nest-handoff` in Claude Code and Cursor, `/skill:nest-supervise` and `/skill:nest-handoff` in Pi. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field note included: tell David, and give him the note's text in your reply instead of writing the file.
+
 ## Start
 
-1. Record the repository, branch, `git rev-parse HEAD`, the time and the task. The task is `$ARGUMENTS`; if it is empty, ask David for it in one line. If it names a brief (for example `docs/milestones/M1.md`), read it and note its acceptance checks.
+1. Record the repository, branch, `git rev-parse HEAD`, the time and the task. The task is the text David gave with the command; if he gave none, ask him for it in one line. If it names a brief (for example `docs/milestones/M1.md`), read it and note its acceptance checks.
 2. Find out whether this continues a session. Run `node ~/dev/pecker-nest/scripts/field-note.ts open --repo <repo>`.
    - It prints a path: that note is still open (no end HEAD), so the session runs over more than one day. Continue it: add today's date and the current HEAD to its `Days` line, keep its start HEAD and its interventions, and tell David which note you continue. If the task is a different one, ask David whether to close the old note with `/nest-handoff` first.
    - It prints nothing (exit code 1): create the field note `~/dev/pecker-nest/field-notes/<YYYY-MM-DD>-<repo>-<short-task-slug>.md` from `~/dev/pecker-nest/field-notes/TEMPLATE.md` and fill in the Session section. Write the first line as `<repo> / <branch>` with the directory name, because that is how the note is found again. Leave the end HEAD empty: that is what keeps the note open.

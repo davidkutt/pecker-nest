@@ -18,7 +18,8 @@
       "./extensions/vendor/questionnaire.ts"
     ],
     "skills": [
-      "./skills"
+      "./skills",
+      "!skills/nest-*"
     ],
     "prompts": [
       "./prompts/*.md"
