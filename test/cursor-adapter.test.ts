@@ -16,7 +16,21 @@ import { after, describe, it } from "node:test";
 import { handBackMessage, repairMessage } from "../extensions/lib/gate-message.ts";
 import { bashCommandReason, protectedPathReason } from "../extensions/lib/safety-rules.ts";
 import { type AdapterContext, STOP_LOOP_LIMIT, STOP_RESERVE_SECONDS, STOP_TIMEOUT_SECONDS } from "../cursor/lib/context.ts";
-import { type CheckRun, joinTurn, MIXED_INSTRUCTION, readTurn, REPORT_INSTRUCTION, roundsFor, runCheckCommand, startTurn, stopTurn, timeoutFor, turnFile } from "../cursor/lib/gate.ts";
+import {
+	type CheckRun,
+	checkEnvironment,
+	GATE_GH_TOKEN,
+	joinTurn,
+	MIXED_INSTRUCTION,
+	readTurn,
+	REPORT_INSTRUCTION,
+	roundsFor,
+	runCheckCommand,
+	startTurn,
+	stopTurn,
+	timeoutFor,
+	turnFile,
+} from "../cursor/lib/gate.ts";
 import { ruleOf } from "../cursor/lib/log.ts";
 import { patchPaths, workspaceRoots, writePaths } from "../cursor/lib/payload.ts";
 import { beforeReadFile, beforeShellExecution, PRE_TOOL_USE_MATCHER, preToolUse } from "../cursor/lib/permission.ts";
@@ -610,6 +624,35 @@ describe("cursor adapter: quality gate", () => {
 		const slow = runCheckCommand("sleep 5", root, 1, { PATH: "/usr/bin:/bin" }, bin);
 		assert.equal(slow.timedOut, true);
 		assert.equal(slow.ok, false);
+	});
+
+	it("runs the check in an environment where pushes and GitHub writes fail, and keeps the user's own git config entries", () => {
+		const root = scratch();
+		write(root, { "env.sh": "#!/bin/sh\nenv\nprintf 'helper=[%s]\\n' \"$(git config --get-all credential.helper)\"\nprintf 'name=%s\\n' \"$(git config user.name)\"\n" });
+		const env = { PATH: "/usr/bin:/bin", HOME: root, SSH_AUTH_SOCK: "/tmp/agent.sock", GITHUB_TOKEN: "not-a-real-token", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "user.name", GIT_CONFIG_VALUE_0: "tester" };
+		const run = runCheckCommand("sh env.sh", root, 10, env, NODE_DIR);
+		assert.equal(run.ok, true, run.output);
+		const seen = new Map(run.output.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+		const expected: Record<string, string> = {
+			GIT_TERMINAL_PROMPT: "0",
+			GIT_ASKPASS: "/usr/bin/false",
+			SSH_ASKPASS: "/usr/bin/false",
+			GIT_SSH_COMMAND: "false",
+			GIT_CONFIG_COUNT: "2",
+			GIT_CONFIG_KEY_0: "user.name",
+			GIT_CONFIG_VALUE_0: "tester",
+			GIT_CONFIG_KEY_1: "credential.helper",
+			GIT_CONFIG_VALUE_1: "",
+			GH_TOKEN: GATE_GH_TOKEN,
+			helper: "[]",
+			name: "tester",
+		};
+		for (const [name, value] of Object.entries(expected)) assert.equal(seen.get(name), value, name);
+		assert.ok(!seen.has("SSH_AUTH_SOCK"), "no SSH agent");
+		assert.ok(!seen.has("GITHUB_TOKEN"), "no GitHub token");
+		assert.equal(seen.get("PATH"), `${NODE_DIR}:/usr/bin:/bin`);
+		const fresh = checkEnvironment({ PATH: "/bin" }, NODE_DIR);
+		assert.deepEqual([fresh.GIT_CONFIG_COUNT, fresh.GIT_CONFIG_KEY_0, fresh.GIT_CONFIG_VALUE_0], ["1", "credential.helper", ""]);
 	});
 
 	it("logs no prompt, command output or follow-up text", () => {

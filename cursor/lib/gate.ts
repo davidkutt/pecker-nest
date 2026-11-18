@@ -17,6 +17,8 @@
  *   before the change.
  * - The check command gets the recorded Node's directory in front of PATH, so `npm` and `pnpm` of a
  *   Node installed with fnm are found by a hook started from the GUI.
+ * - The check command runs repository code outside Cursor's sandbox with the user's rights, so its
+ *   environment makes pushes and GitHub writes fail (checkEnvironment). A tripwire, not a sandbox.
  */
 
 import { spawnSync } from "node:child_process";
@@ -220,12 +222,42 @@ export interface CheckRun extends CheckOutcome {
 
 export type RunCheck = (command: string, cwd: string, timeoutSeconds: number) => CheckRun;
 
-/** The check command with `bash -c` in the repository, Node's directory first on PATH. */
+/** The token gh gets in the check command: a placeholder, so gh does not fall back to the stored login. */
+export const GATE_GH_TOKEN = "pecker-nest-gate-no-token";
+
+/**
+ * The environment of the check command. The check runs repository code the agent may have changed,
+ * outside Cursor's sandbox and with the user's rights; so pushes and GitHub writes from it should
+ * fail without disturbing ordinary tests: no terminal or askpass prompt, no SSH (command and agent),
+ * no git credential helper (an empty `credential.helper` resets osxkeychain, appended after the
+ * user's own GIT_CONFIG_COUNT entries), and a gh token that GitHub refuses. A tripwire, not a
+ * sandbox: the code can still read files and use other credentials.
+ */
+export function checkEnvironment(env: NodeJS.ProcessEnv, nodeDir: string): NodeJS.ProcessEnv {
+	const result: NodeJS.ProcessEnv = { ...env, PATH: [nodeDir, env.PATH].filter(Boolean).join(":") };
+	delete result.SSH_AUTH_SOCK;
+	delete result.GITHUB_TOKEN;
+	const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? "", 10);
+	const index = Number.isInteger(count) && count > 0 ? count : 0;
+	return {
+		...result,
+		GIT_TERMINAL_PROMPT: "0",
+		GIT_ASKPASS: "/usr/bin/false",
+		SSH_ASKPASS: "/usr/bin/false",
+		GIT_SSH_COMMAND: "false",
+		GIT_CONFIG_COUNT: String(index + 1),
+		[`GIT_CONFIG_KEY_${index}`]: "credential.helper",
+		[`GIT_CONFIG_VALUE_${index}`]: "",
+		GH_TOKEN: GATE_GH_TOKEN,
+	};
+}
+
+/** The check command with `bash -c` in the repository, Node's directory first on PATH, in checkEnvironment. */
 export function runCheckCommand(command: string, cwd: string, timeoutSeconds: number, env: NodeJS.ProcessEnv = process.env, nodeDir = dirname(process.execPath)): CheckRun {
 	const started = Date.now();
 	const result = spawnSync("/bin/bash", ["-c", command], {
 		cwd,
-		env: { ...env, PATH: [nodeDir, env.PATH].filter(Boolean).join(":") },
+		env: checkEnvironment(env, nodeDir),
 		encoding: "utf-8",
 		timeout: timeoutSeconds > 0 ? timeoutSeconds * 1000 : undefined,
 		killSignal: "SIGKILL",
