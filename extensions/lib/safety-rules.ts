@@ -228,8 +228,8 @@ const DOWNLOAD_INTO_SHELL = [
 	new RegExp(`\\b(?:curl|wget)\\b[^;&\\n]*\\|\\s*(?:sudo\\s+(?:-\\S+\\s+)*)?(?:env\\s+)?${INTERPRETERS}\\b`),
 	// sh <(curl …), source <(wget …), . <(curl …)
 	new RegExp(`(?:\\b${SHELLS}|\\bsource|(?:^|[\\s;&|])\\.)\\s+(?:-\\S+\\s+)*<\\(\\s*(?:curl|wget)\\b`),
-	// bash -c "$(curl …)", eval "$(wget …)"
-	new RegExp(`(?:\\b${SHELLS}\\s+-c|\\beval)\\s+\\$\\(\\s*(?:curl|wget)\\b`),
+	// bash -c "$(curl …)", bash -lc "$(curl …)", eval "$(wget …)"
+	new RegExp(`(?:\\b${SHELLS}\\s+-[A-Za-z]*c[A-Za-z]*|\\beval)\\s+\\$\\(\\s*(?:curl|wget)\\b`),
 ];
 
 /** Wrappers that run the command that follows them. */
@@ -413,8 +413,8 @@ function simpleCommandReason(words: string[], policy?: PathPolicy): string | und
 	if (!first) return undefined;
 	// Ignoring case, `RM` and `GIT` are rm and git: the shell finds them under any spelling.
 	const program = folded(basename(first), policy?.caseInsensitive);
-	// `bash -c "…"` and `eval …` run their arguments as a command.
-	const commandAt = new RegExp(`^${SHELLS}$`).test(program) ? args.indexOf("-c") : -1;
+	// `bash -c "…"`, `sh -lc "…"`, `zsh -ic "…"` and `eval …` run their arguments as a command.
+	const commandAt = new RegExp(`^${SHELLS}$`).test(program) ? args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg)) : -1;
 	if (commandAt >= 0) return simpleCommandReason(args.slice(commandAt + 1), policy);
 	if (program === "eval") return simpleCommandReason(args, policy);
 	return (
