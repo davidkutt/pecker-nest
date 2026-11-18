@@ -69,6 +69,7 @@ describe("cursor/user-rule.md", () => {
 		assert.match(USER_RULE, /\[quality-gate\]/);
 		assert.match(USER_RULE, /short and start with the answer, without preamble/);
 		assert.match(USER_RULE, /`reviewer` subagent, do not name a model/);
+		assert.ok(bullets(USER_RULE).includes("Never merge, approve, close or comment on pull requests or issues; the user does that."), "AGENTS.md's rule for pull requests and issues");
 		assert.ok(USER_RULE.includes(APPEND_SYSTEM.split("\n").find((line) => line.startsWith("These rules apply"))!), "the opening sentence stays");
 	});
 });

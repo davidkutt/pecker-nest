@@ -79,7 +79,9 @@ fi
 status=0
 backup() {
   local dest="$1"
-  local backup="$dest.bak.$(date +%Y%m%d%H%M%S)"
+  local backup
+  # The PID keeps two backups in the same second apart.
+  backup="$dest.bak.$(date +%Y%m%d%H%M%S).$$"
   mv "$dest" "$backup"
   echo "backup  $dest -> $backup"
 }

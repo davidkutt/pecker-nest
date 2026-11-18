@@ -15,7 +15,7 @@ import { bashCommandReason, protectedPathReason, protectedReadReason, searchRead
 import type { AdapterContext } from "./context.ts";
 import { type LogEntry, ruleOf } from "./log.ts";
 import { absolute, inputPath, type Payload, text, toolInput, workspaceRoots, writePaths } from "./payload.ts";
-import { policyFor, repositoryFor } from "./policy.ts";
+import { caseInsensitive, policyFor, repositoryFor } from "./policy.ts";
 
 export interface HookResult {
 	answer: Record<string, unknown>;
@@ -57,7 +57,7 @@ const allowed = (rule = "allowed", repo?: string, path?: string): Verdict => ({ 
 /** A shell command against the rules of every workspace root: a command can reach any of them. */
 export function shellVerdict(command: string, roots: readonly string[], context: AdapterContext): Verdict {
 	if (!command.trim()) return allowed("empty");
-	const script = harnessScriptReason(command, { nestDir: context.nestDir, cwd: roots[0] ?? context.home, home: context.home });
+	const script = harnessScriptReason(command, { nestDir: context.nestDir, cwd: roots[0] ?? context.home, home: context.home, caseInsensitive: caseInsensitive(context) });
 	if (script) return { reason: script, rule: ruleOf(script) };
 	for (const root of roots.length ? roots : [undefined]) {
 		const resolved = policyFor(root, context);

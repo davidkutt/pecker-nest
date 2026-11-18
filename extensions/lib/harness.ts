@@ -19,16 +19,19 @@ export interface HarnessOptions {
 }
 
 /**
- * nest's harness: this package, Pi's agent directory and Claude Code's config directory. Claude
- * Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells agents to write skills to
- * `~/.claude/skills`, so without the third entry nest could change the settings, skills and hooks
- * of the harness that watches it.
+ * nest's harness: this package, Pi's agent directory, Claude Code's config directory and
+ * `~/.agents`. Claude Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells agents to
+ * write skills to `~/.claude/skills`, so without the third entry nest could change the settings,
+ * skills and hooks of the harness that watches it. `~/.agents/skills` is the same for the skills
+ * Pi (1.5.0, package-manager.js) and Cursor load into every session; `link.sh --cursor` installs
+ * nest's skills there.
  */
 export function harnessDirs({ nestDir, home = homedir(), env = process.env, canonical = canonicalPath }: HarnessOptions): string[] {
 	return [
 		canonical(nestDir),
 		canonical(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent")),
 		canonical(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude")),
+		canonical(join(home, ".agents")),
 	];
 }
 
@@ -81,17 +84,23 @@ const HARNESS_SCRIPTS = ["scripts/link.sh", "scripts/cursor-trust.sh"];
  * Reason why a shell command must not run because it calls one of the scripts that install or
  * configure the harness (`scripts/link.sh --cursor-capture` would swap the gate for the capture
  * hook, `scripts/cursor-trust.sh add` would let a repository's gate command run), or undefined.
- * Like the other command rules a tripwire, not a sandbox.
+ * With `caseInsensitive` (macOS, as PathPolicy.caseInsensitive) `~/DEV/PECKER-NEST/scripts/LINK.sh`
+ * counts too. Like the other command rules a tripwire, not a sandbox.
  */
-export function harnessScriptReason(command: string, options: { nestDir: string; cwd: string; home?: string; canonical?: (path: string) => string }): string | undefined {
+export function harnessScriptReason(
+	command: string,
+	options: { nestDir: string; cwd: string; home?: string; canonical?: (path: string) => string; caseInsensitive?: boolean },
+): string | undefined {
 	const home = options.home ?? homedir();
 	const canonical = options.canonical ?? canonicalPath;
-	const scripts = new Set(HARNESS_SCRIPTS.map((script) => canonical(join(options.nestDir, script))));
+	const fold = (value: string) => (options.caseInsensitive ? value.toLowerCase() : value);
+	const scripts = new Set(HARNESS_SCRIPTS.map((script) => fold(canonical(join(options.nestDir, script)))));
+	const name = new RegExp("(?:^|/)(?:link|cursor-trust)\\.sh$", options.caseInsensitive ? "i" : "");
 	for (const word of splitCommands(command).flat()) {
-		if (!/(?:^|\/)(?:link|cursor-trust)\.sh$/.test(word)) continue;
+		if (!name.test(word)) continue;
 		const expanded = word.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
 		const target = canonical(isAbsolute(expanded) ? resolve(expanded) : resolve(options.cwd, expanded));
-		if (scripts.has(target) || basename(word) === "cursor-trust.sh") return `${word} installs or configures the agent harness; the user runs it`;
+		if (scripts.has(fold(target)) || fold(basename(word)) === "cursor-trust.sh") return `${word} installs or configures the agent harness; the user runs it`;
 	}
 	return undefined;
 }

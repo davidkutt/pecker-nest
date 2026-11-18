@@ -15,9 +15,10 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 ├── package.json              Pi package: extensions, skills, prompts; pi-subagents agent dir
 ├── AGENTS.md                 rules for every agent working on this repo; CLAUDE.md only points here
 ├── extensions/
-│   ├── safety-gate.ts        blocks rm -rf, git push/reset --hard/clean -f, curl|sh, writes to .env*/keys/.pi/,
-│   │                         the harness itself (this repo, Pi's and Claude Code's config dirs);
-│   │                         applies .pi/protect.json; /plan writes only PLAN.md
+│   ├── safety-gate.ts        blocks rm -rf, git push/reset --hard/clean -f, gh merge/review/comment, curl|sh,
+│   │                         writes to .env*/keys/.pi/ and the harness itself (this repo, Pi's and
+│   │                         Claude Code's config dirs, ~/.agents); applies .pi/protect.json;
+│   │                         /plan writes only PLAN.md
 │   ├── quality-gate.ts       runs .pi/gate.json after code changes, ≤ 2 repair rounds, /gate command;
 │   │                         also red when the diff weakens the checks: deleted or skipped tests,
 │   │                         fewer test cases, suppressions, changed lint/type/test configuration

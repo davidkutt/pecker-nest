@@ -23,7 +23,8 @@ import { fileURLToPath } from "node:url";
 import { MockOpenRouter, type MockRequest, mockProvider, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const PI = process.env.PI_BIN ?? "pi";
+// A relative path (`PI_BIN=node_modules/.bin/pi`, AGENTS.md) would be looked up in each scenario's repository.
+const PI = process.env.PI_BIN?.includes("/") ? resolve(process.env.PI_BIN) : (process.env.PI_BIN ?? "pi");
 const GLM = "z-ai/glm-5.3";
 const KIMI = "moonshotai/kimi-k3.1-pro";
 const FLASH = "deepseek/deepseek-v4.1-flash-1017";
@@ -466,7 +467,8 @@ const scenarios: [string, () => Promise<void>][] = [
 		"/plan writes only PLAN.md and does not start the gate (test 2)",
 		async () => {
 			const repo = makeRepo("plan", {});
-			sh(repo, "echo bad > value.txt && git commit -qam red");
+			// Without a global git identity the commit needs one of its own.
+			sh(repo, "echo bad > value.txt && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git commit -qam red");
 			const run = await runPi(repo, ["-p", "--approve", "/plan add a greeting [scenario:plan]"]);
 			assert.equal(run.code, 0, run.stderr);
 			const [first, afterApp] = requestsFor("plan");

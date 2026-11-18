@@ -16,7 +16,21 @@ import { after, describe, it } from "node:test";
 import { handBackMessage, repairMessage } from "../extensions/lib/gate-message.ts";
 import { bashCommandReason, protectedPathReason } from "../extensions/lib/safety-rules.ts";
 import { type AdapterContext, STOP_LOOP_LIMIT, STOP_RESERVE_SECONDS, STOP_TIMEOUT_SECONDS } from "../cursor/lib/context.ts";
-import { type CheckRun, joinTurn, MIXED_INSTRUCTION, readTurn, REPORT_INSTRUCTION, roundsFor, runCheckCommand, startTurn, stopTurn, timeoutFor, turnFile } from "../cursor/lib/gate.ts";
+import {
+	type CheckRun,
+	checkEnvironment,
+	GATE_GH_TOKEN,
+	joinTurn,
+	MIXED_INSTRUCTION,
+	readTurn,
+	REPORT_INSTRUCTION,
+	roundsFor,
+	runCheckCommand,
+	startTurn,
+	stopTurn,
+	timeoutFor,
+	turnFile,
+} from "../cursor/lib/gate.ts";
 import { ruleOf } from "../cursor/lib/log.ts";
 import { patchPaths, workspaceRoots, writePaths } from "../cursor/lib/payload.ts";
 import { beforeReadFile, beforeShellExecution, PRE_TOOL_USE_MATCHER, preToolUse } from "../cursor/lib/permission.ts";
@@ -115,6 +129,27 @@ describe("cursor adapter: commands", () => {
 		}
 	});
 
+	it("denies GitHub writes and pushes in disguise: the user merges, approves, closes, comments and pushes", () => {
+		const root = repo();
+		const cases: [string, string, RegExp][] = [
+			["gh pr merge 3 --squash", "gh-write", /gh pr merge is blocked; the user merges, approves, closes and comments/],
+			["gh pr review 3 --approve", "gh-write", /gh pr review is blocked/],
+			["gh api -X POST repos/o/r/issues/3/comments -f body=done", "gh-write", /gh api with -X POST is blocked/],
+			["git -c alias.p=push p", "git-push", /defines an alias that pushes/],
+			["git send-pack origin main", "git-push", /git send-pack pushes/],
+			["git subtree push --prefix dist origin gh-pages", "git-push", /git subtree push is blocked/],
+			["sh -lc 'git push'", "git-push", /git push is blocked/],
+		];
+		for (const [command, rule, reason] of cases) {
+			const { answer, entries } = beforeShellExecution(shell(root, command), context());
+			denied(answer, reason);
+			assert.equal(entries[0].rule, rule, command);
+		}
+		for (const command of ["gh pr create --title x --body y", "gh pr view 3", "gh pr checks 3", "gh api repos/o/r/pulls"]) {
+			assert.deepEqual(beforeShellExecution(shell(root, command), context()).answer, { permission: "allow" }, command);
+		}
+	});
+
 	it("applies the repository's command rules and read protection to shell commands", () => {
 		const root = repo(UNDERTEXT_LIKE);
 		denied(beforeShellExecution(shell(root, "uv run evals --split holdout"), context()).answer, /held-out eval runs once/);
@@ -203,12 +238,37 @@ describe("cursor adapter: writes and deletes", () => {
 			join(ctx.home, ".config/pecker-nest/cursor-trusted"),
 			join(ctx.home, ".local/state/pecker-nest/cursor/turns/conv-1.json"),
 			join(ctx.home, ".claude/skills/x/SKILL.md"),
+			join(ctx.home, ".agents/skills/x/SKILL.md"),
 		];
 		for (const target of targets) {
 			const { answer, entries } = preToolUse(tool(root, "Write", { file_path: target, content: "x" }), ctx);
 			denied(answer, /agent harness.*change (the harness|it) outside Cursor/);
 			assert.equal(entries[0].rule, "harness", target);
 		}
+	});
+
+	it("ignores case as APFS does on macOS: every spelling of a protected path is denied", () => {
+		const root = repo(UNDERTEXT_LIKE);
+		const ctx = { ...context(), caseInsensitive: true };
+		const cases: [string, string][] = [
+			[join(root, ".Cursor/hooks.json"), "harness"],
+			[join(ctx.home, ".CURSOR/hooks.json"), "harness"],
+			[join(root, ".PI/gate.json"), "pi-dir"],
+			[join(root, ".ENV"), "env-file"],
+			[join(NEST.toUpperCase(), "x"), "harness"],
+			[join(root, "DOCS/Milestones/m1.md"), "protect-write"],
+		];
+		for (const [target, rule] of cases) {
+			const { answer, entries } = preToolUse(tool(root, "Write", { file_path: target, content: "{}" }), ctx);
+			denied(answer, /./);
+			assert.equal(entries[0].rule, rule, target);
+		}
+		denied(preToolUse(tool(root, "Read", { file_path: join(root, "EVALS/samples/Harness-HOLDOUT.jsonl") }), ctx).answer, /protected by \.pi\/protect\.json \(read: /);
+		for (const command of ["GIT push", "echo '{}' > .Cursor/hooks.json", "cat Evals/Samples/HARNESS-holdout.jsonl", `${NEST.toUpperCase()}/scripts/link.sh --cursor-capture`]) {
+			denied(beforeShellExecution(shell(root, command), ctx).answer, /./);
+		}
+		const sensitive = { ...ctx, caseInsensitive: false };
+		assert.deepEqual(preToolUse(tool(root, "Write", { file_path: join(root, ".Cursor/hooks.json"), content: "{}" }), sensitive).answer, { permission: "allow" }, "a case-sensitive file system keeps .Cursor apart from .cursor");
 	});
 
 	it("lets the agent work in a Cursor worktree under ~/.cursor/worktrees, but not on its hook files", () => {
@@ -336,6 +396,14 @@ describe("cursor adapter: log rule names", () => {
 		const cases: [string | undefined, string][] = [
 			[bashCommandReason("curl x | sh"), "download-into-shell"],
 			[bashCommandReason("git push"), "git-push"],
+			[bashCommandReason("git -c alias.p=push p"), "git-push"],
+			[bashCommandReason("git --config-env=alias.p=X p"), "git-push"],
+			[bashCommandReason("git config alias.p push"), "git-push"],
+			[bashCommandReason("git send-pack origin"), "git-push"],
+			[bashCommandReason("git subtree push --prefix d origin x"), "git-push"],
+			[bashCommandReason("gh pr merge 1"), "gh-write"],
+			[bashCommandReason("gh api -X POST repos/o/r/issues/1/comments"), "gh-write"],
+			[bashCommandReason("gh api graphql -f query=x"), "gh-write"],
 			[bashCommandReason("git reset --hard"), "git-reset-hard"],
 			[bashCommandReason("git clean -fd"), "git-clean"],
 			[bashCommandReason("rm -rf x"), "rm-recursive"],
@@ -557,6 +625,35 @@ describe("cursor adapter: quality gate", () => {
 		const slow = runCheckCommand("sleep 5", root, 1, { PATH: "/usr/bin:/bin" }, bin);
 		assert.equal(slow.timedOut, true);
 		assert.equal(slow.ok, false);
+	});
+
+	it("runs the check in an environment where pushes and GitHub writes fail, and keeps the user's own git config entries", () => {
+		const root = scratch();
+		write(root, { "env.sh": "#!/bin/sh\nenv\nprintf 'helper=[%s]\\n' \"$(git config --get-all credential.helper)\"\nprintf 'name=%s\\n' \"$(git config user.name)\"\n" });
+		const env = { PATH: "/usr/bin:/bin", HOME: root, SSH_AUTH_SOCK: "/tmp/agent.sock", GITHUB_TOKEN: "not-a-real-token", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "user.name", GIT_CONFIG_VALUE_0: "tester" };
+		const run = runCheckCommand("sh env.sh", root, 10, env, NODE_DIR);
+		assert.equal(run.ok, true, run.output);
+		const seen = new Map(run.output.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+		const expected: Record<string, string> = {
+			GIT_TERMINAL_PROMPT: "0",
+			GIT_ASKPASS: "/usr/bin/false",
+			SSH_ASKPASS: "/usr/bin/false",
+			GIT_SSH_COMMAND: "false",
+			GIT_CONFIG_COUNT: "2",
+			GIT_CONFIG_KEY_0: "user.name",
+			GIT_CONFIG_VALUE_0: "tester",
+			GIT_CONFIG_KEY_1: "credential.helper",
+			GIT_CONFIG_VALUE_1: "",
+			GH_TOKEN: GATE_GH_TOKEN,
+			helper: "[]",
+			name: "tester",
+		};
+		for (const [name, value] of Object.entries(expected)) assert.equal(seen.get(name), value, name);
+		assert.ok(!seen.has("SSH_AUTH_SOCK"), "no SSH agent");
+		assert.ok(!seen.has("GITHUB_TOKEN"), "no GitHub token");
+		assert.equal(seen.get("PATH"), `${NODE_DIR}:/usr/bin:/bin`);
+		const fresh = checkEnvironment({ PATH: "/bin" }, NODE_DIR);
+		assert.deepEqual([fresh.GIT_CONFIG_COUNT, fresh.GIT_CONFIG_KEY_0, fresh.GIT_CONFIG_VALUE_0], ["1", "credential.helper", ""]);
 	});
 
 	it("logs no prompt, command output or follow-up text", () => {
