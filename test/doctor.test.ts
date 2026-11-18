@@ -101,6 +101,8 @@ interface Options {
 	linked?: boolean;
 	/** Put the repo at ~/dev/pecker-nest in the scratch HOME. */
 	atExpectedPath?: boolean;
+	/** Runs after the links, with the scratch HOME and the environment doctor gets. */
+	setup?: (home: string, env: Record<string, string>) => void;
 	args?: string[];
 }
 
@@ -142,6 +144,7 @@ function doctor(options: Options = {}) {
 			assert.equal(link.status, 0, link.stderr);
 		}
 	}
+	options.setup?.(dir, env);
 	const result = spawnSync(DOCTOR, options.args ?? [], { encoding: "utf-8", env });
 	const lines = result.stdout.trimEnd().split("\n");
 	const securityCalls = existsSync(join(dir, "security-calls")) ? readFileSync(join(dir, "security-calls"), "utf-8") : "";
@@ -401,6 +404,88 @@ describe("scripts/doctor.sh", () => {
 	it("rejects unknown arguments", () => {
 		assert.equal(doctor({ args: ["--nope"] }).status, 2);
 		assert.equal(doctor({ args: ["--repo"] }).status, 2);
-		assert.match(doctor({ args: ["--help"] }).stderr, /usage: scripts\/doctor\.sh \[--docker\] \[--repo <path>\]/);
+		assert.match(doctor({ args: ["--help"] }).stderr, /usage: scripts\/doctor\.sh \[--docker\] \[--repo <path>\] \[--cursor\]/);
+	});
+});
+
+describe("scripts/doctor.sh --cursor", () => {
+	/** link.sh --cursor in the scratch HOME, with the stub `node` that runs the real one. */
+	function installCursor(home: string, env: Record<string, string>) {
+		const link = spawnSync(join(NEST, "scripts/link.sh"), ["--cursor"], { encoding: "utf-8", env: { ...env, HOME: home } });
+		assert.equal(link.status, 0, link.stdout + link.stderr);
+	}
+	function trusted(home: string, ...roots: string[]) {
+		mkdirSync(join(home, ".config/pecker-nest"), { recursive: true });
+		writeFileSync(join(home, ".config/pecker-nest/cursor-trusted"), roots.map((root) => `${root}\n`).join(""));
+	}
+	const recordNode = (home: string, path: string) => writeFileSync(join(home, ".config/pecker-nest/cursor-node"), `${path}\n`);
+
+	it("passes when the adapter is installed, its Node starts and a repository is trusted", () => {
+		const repo = targetRepo({ ".pi/gate.json": '{"command":"x"}' });
+		const run = doctor({ args: ["--cursor"], setup: (home, env) => (installCursor(home, env), trusted(home, repo)) });
+		assert.equal(run.status, 0, run.stdout);
+		assert.ok(run.line("cursor: hooks, reviewer subagent and skills are installed").startsWith("PASS  "));
+		assert.match(run.line("cursor: the hooks start Node"), new RegExp(`^PASS {2}cursor: the hooks start Node ${process.versions.node.replaceAll(".", "\\.")} at /`));
+		assert.ok(run.line("cursor: 1 repository trusted").startsWith("PASS  "));
+		// link.sh --claude also put the supervision skills into ~/.claude/skills, which Cursor reads too.
+		assert.match(run.line("are visible to Cursor through"), /^WARN {2}cursor: nest-supervise and nest-handoff are visible to Cursor through .*\.claude\/skills\/ .*Fix: /);
+	});
+
+	it("fails without the adapter, and says that Cursor then blocks everything", () => {
+		const run = doctor({ args: ["--cursor"] });
+		assert.equal(run.status, 1);
+		assert.match(run.line("of the adapter's links missing"), /^FAIL .*Fix: .*scripts\/link\.sh --cursor$/);
+		assert.match(run.line("no Node recorded"), /^FAIL .*Cursor blocks every command and file access\. Fix: .*link\.sh --cursor$/);
+		assert.match(run.line("no repository is trusted"), /^WARN .*Fix: .*cursor-trust\.sh add <repo>$/);
+	});
+
+	it("fails for a recorded Node that is gone, in an fnm shell directory, or too old", () => {
+		const gone = doctor({ args: ["--cursor"], setup: (home, env) => (installCursor(home, env), recordNode(home, join(home, "no-such/node"))) });
+		assert.equal(gone.status, 1);
+		assert.match(gone.line("cursor: the recorded Node"), /^FAIL .*no-such\/node is gone .*Fix: .*link\.sh --cursor$/);
+
+		const multishell = doctor({
+			args: ["--cursor"],
+			setup: (home, env) => {
+				installCursor(home, env);
+				const dir = join(home, ".local/state/fnm_multishells/4242_1/bin");
+				mkdirSync(dir, { recursive: true });
+				symlinkSync(process.execPath, join(dir, "node"));
+				recordNode(home, join(dir, "node"));
+			},
+		});
+		assert.equal(multishell.status, 1);
+		assert.match(multishell.line("cursor: the recorded Node"), /^FAIL .*per-shell directory of fnm .*Fix: .*link\.sh --cursor \(it records the resolved path\)$/);
+
+		const old = doctor({
+			args: ["--cursor"],
+			setup: (home, env) => {
+				installCursor(home, env);
+				writeFileSync(join(home, "old-node"), "#!/bin/sh\necho v20.11.0\n");
+				chmodSync(join(home, "old-node"), 0o755);
+				recordNode(home, join(home, "old-node"));
+			},
+		});
+		assert.equal(old.status, 1);
+		assert.match(old.line("cursor: the recorded Node"), /^FAIL .*is 20\.11\.0, older than 22\.18\. Fix: /);
+	});
+
+	it("warns for trust-list entries that are gone and for Claude Code hooks Cursor would run", () => {
+		const run = doctor({
+			args: ["--cursor"],
+			setup: (home, env) => {
+				installCursor(home, env);
+				trusted(home, join(home, "gone-repo"));
+				writeFileSync(join(home, ".claude/settings.json"), JSON.stringify({ hooks: { PreToolUse: [], Stop: [] } }));
+			},
+		});
+		assert.equal(run.status, 0, run.stdout);
+		assert.match(run.line("trust list names repositories that do not exist"), /gone-repo\. Fix: .*cursor-trust\.sh remove <path>$/);
+		assert.match(run.line("settings.json has hooks"), /^WARN .*\(PreToolUse, Stop\); Cursor runs them as well.*Fix: /);
+	});
+
+	it("checks nothing of Cursor without the switch", () => {
+		const run = doctor();
+		assert.ok(!run.stdout.includes("cursor:"), run.stdout);
 	});
 });

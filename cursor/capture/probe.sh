@@ -35,6 +35,22 @@ line=$(printf '{"time":"%s","hook":"%s","probe":"%s","bytes":%s,"cwd":"%s","doll
   "$(esc "$(command -v node 2>/dev/null)")" "$(esc "$(command -v npm 2>/dev/null)")" \
   "$(esc "$(command -v git 2>/dev/null)")" "$(esc "$(command -v bash 2>/dev/null)")")
 
-mkdir -p "$dir" 2>/dev/null && printf '%s\n' "$line" >>"$dir/capture.jsonl"
+# The four probes start at the same moment, and the shell may write one long line in several
+# pieces: on 17.11.2026 two lines of the capture came out interleaved. A directory serves as the
+# lock (mkdir is atomic). After about two seconds the probe removes a lock left behind by a killed
+# probe and appends anyway, so a hook never hangs on it.
+mkdir -p "$dir" 2>/dev/null || { printf '{}\n'; exit 0; }
+lock="$dir/capture.lock"
+tries=0
+while ! mkdir "$lock" 2>/dev/null; do
+  tries=$((tries + 1))
+  if [ "$tries" -ge 40 ]; then
+    rmdir "$lock" 2>/dev/null
+    break
+  fi
+  sleep 0.05
+done
+printf '%s\n' "$line" >>"$dir/capture.jsonl"
+[ "$tries" -lt 40 ] && rmdir "$lock" 2>/dev/null
 printf '{}\n'
 exit 0

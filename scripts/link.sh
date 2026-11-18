@@ -6,7 +6,9 @@
 #
 # The supervision skills skills/nest-supervise and skills/nest-handoff, per tool, combinable:
 #   scripts/link.sh --claude   also into ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
-#   scripts/link.sh --cursor   also into ~/.cursor/skills
+#   scripts/link.sh --cursor   also into ~/.cursor/skills, and installs the Cursor adapter:
+#                              ~/.cursor/hooks.json from cursor/hooks.json, ~/.cursor/agents/reviewer.md,
+#                              and grill-me, testing-ts and testing-py in ~/.agents/skills
 #   scripts/link.sh --pi       also into ${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills
 #
 #   scripts/link.sh --cursor-capture       only this: install the capture hook of
@@ -20,10 +22,12 @@
 # (exit code 1); an older link into this checkout (claude/skills/ before the move) is replaced.
 # auth.json, sessions and other runtime state stay where they are.
 #
-# The capture hook writes ~/.cursor/hooks.json from cursor/capture/hooks.json with this checkout's
-# path filled in, because user hooks need absolute paths and the repository holds no
-# machine-specific path. It records the absolute path of `node` in ~/.config/pecker-nest/cursor-node,
-# because Cursor may start hooks with a PATH that lacks Homebrew. Runs under macOS bash 3.2.
+# The adapter and the capture hook write ~/.cursor/hooks.json from cursor/hooks.json or
+# cursor/capture/hooks.json with this checkout's path filled in, because user hooks need absolute
+# paths and the repository holds no machine-specific path. Both record the resolved absolute path of
+# `node` in ~/.config/pecker-nest/cursor-node, because Cursor may start hooks with a PATH that lacks
+# Homebrew, and fnm's `command -v node` names a per-shell directory that vanishes with the shell.
+# Runs under macOS bash 3.2.
 set -euo pipefail
 
 NEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -33,6 +37,10 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CURSOR_DIR="$HOME/.cursor"
 CURSOR_HOOKS="$CURSOR_DIR/hooks.json"
 CURSOR_PROBE="$CURSOR_DIR/hooks/pecker-nest-probe.sh"
+CURSOR_REVIEWER="$CURSOR_DIR/agents/reviewer.md"
+AGENTS_SKILLS_DIR="$HOME/.agents/skills"
+# Not best-practices: it needs the knowledge base, which Cursor does not have.
+CURSOR_ADAPTER_SKILLS="grill-me testing-ts testing-py"
 NEST_CONFIG_DIR="$HOME/.config/pecker-nest"
 NEST_STATE_DIR="$HOME/.local/state/pecker-nest/cursor"
 CHECK_ONLY=0
@@ -123,12 +131,116 @@ link_skills() {
   done
 }
 
-# ---------------------------------------------------------------- Cursor capture hook
+# ---------------------------------------------------------------- Cursor: Node and hooks.json
 
-# ~/.cursor/hooks.json as the capture hook wants it, on stdout.
-capture_hooks_json() {
-  sed "s|@NEST_DIR@|$NEST_DIR|g" "$NEST_DIR/cursor/capture/hooks.json"
+# Records the resolved path of the `node` on PATH for cursor/node.sh. fnm's `command -v node` is a
+# link inside a per-shell directory (fnm_multishells) that disappears with the shell; Node's own
+# process.execPath, resolved, is the installation that stays.
+record_node() {
+  local found real
+  found="$(command -v node || true)"
+  if [[ -z "$found" || "$found" != /* ]]; then
+    echo "error: node is not on PATH. Install it (brew install node, or fnm) and run this again." >&2
+    exit 1
+  fi
+  real="$("$found" -p 'require("node:fs").realpathSync(process.execPath)' 2>/dev/null || true)"
+  if [[ -z "$real" || "$real" != /* || ! -x "$real" ]]; then
+    echo "error: could not resolve the path of $found." >&2
+    exit 1
+  fi
+  if [[ "$real" == *fnm_multishells* ]]; then
+    echo "error: $found resolves to $real, inside fnm's per-shell directory, which disappears with the shell." >&2
+    exit 1
+  fi
+  if ! "$real" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 18) ? 0 : 1)'; then
+    echo "error: $real is $("$real" --version); the hooks need Node 22.18 or newer." >&2
+    exit 1
+  fi
+  mkdir -p "$NEST_CONFIG_DIR" "$NEST_STATE_DIR"
+  printf '%s\n' "$real" > "$NEST_CONFIG_DIR/cursor-node"
+  echo "node    $real (recorded in $NEST_CONFIG_DIR/cursor-node)"
 }
+
+# --check: the recorded Node exists.
+check_node() {
+  local recorded=""
+  [[ -r "$NEST_CONFIG_DIR/cursor-node" ]] && recorded="$(sed -n '1p' "$NEST_CONFIG_DIR/cursor-node")"
+  if [[ -n "$recorded" && -x "$recorded" ]]; then
+    echo "ok      node $recorded ($NEST_CONFIG_DIR/cursor-node)"
+  else
+    echo "missing node ($NEST_CONFIG_DIR/cursor-node: ${recorded:-no path})"
+    status=1
+  fi
+}
+
+# The commands in hooks.json are not quoted, so that every shell (and no shell) reads them alike.
+check_hook_path() {
+  if [[ ! "$NEST_DIR" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "error: $NEST_DIR contains characters a hook command cannot carry unquoted." >&2
+    exit 1
+  fi
+}
+
+# A hooks.json template with this checkout's path, on stdout.
+hooks_json() {
+  sed "s|@NEST_DIR@|$NEST_DIR|g" "$NEST_DIR/$1"
+}
+
+# Writes ~/.cursor/hooks.json from template $1, labelled $2; an earlier file is backed up.
+install_hooks() {
+  local template="$1" label="$2" generated
+  generated="$(mktemp "${TMPDIR:-/tmp}/pecker-nest-hooks.XXXXXX")"
+  hooks_json "$template" > "$generated"
+  if ! "$(sed -n '1p' "$NEST_CONFIG_DIR/cursor-node")" -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf-8"))' "$generated"; then
+    rm -f "$generated"
+    echo "error: the generated hooks.json is not valid JSON." >&2
+    exit 1
+  fi
+  mkdir -p "$CURSOR_DIR"
+  if [[ -f "$CURSOR_HOOKS" ]] && cmp -s "$generated" "$CURSOR_HOOKS"; then
+    rm -f "$generated"
+    echo "ok      $CURSOR_HOOKS ($label)"
+  else
+    if [[ -e "$CURSOR_HOOKS" || -L "$CURSOR_HOOKS" ]]; then
+      backup "$CURSOR_HOOKS"
+    fi
+    mv "$generated" "$CURSOR_HOOKS"
+    chmod 644 "$CURSOR_HOOKS"
+    echo "wrote   $CURSOR_HOOKS ($label)"
+  fi
+}
+
+check_hooks() {
+  local template="$1" label="$2"
+  if [[ -f "$CURSOR_HOOKS" ]] && cmp -s <(hooks_json "$template") "$CURSOR_HOOKS"; then
+    echo "ok      $CURSOR_HOOKS ($label)"
+  else
+    echo "missing $CURSOR_HOOKS ($label)"
+    status=1
+  fi
+}
+
+# ---------------------------------------------------------------- Cursor adapter
+
+cursor_adapter() {
+  if (( CHECK_ONLY )); then
+    check_node
+    check_hooks cursor/hooks.json adapter
+  else
+    check_hook_path
+    record_node
+    install_hooks cursor/hooks.json adapter
+    mkdir -p "$CURSOR_DIR/agents"
+  fi
+  link "$NEST_DIR/cursor/agents/reviewer.md" "$CURSOR_REVIEWER"
+  (( CHECK_ONLY )) || mkdir -p "$AGENTS_SKILLS_DIR"
+  local name
+  for name in $CURSOR_ADAPTER_SKILLS; do
+    link_skill "$NEST_DIR/skills/$name" "$AGENTS_SKILLS_DIR/$name"
+  done
+}
+
+# ---------------------------------------------------------------- Cursor capture hook
 
 is_capture_hooks() {
   [[ -f "$1" ]] && grep -q "$NEST_DIR/cursor/capture/" "$1"
@@ -136,55 +248,15 @@ is_capture_hooks() {
 
 cursor_capture_on() {
   if (( CHECK_ONLY )); then
-    if [[ -f "$CURSOR_HOOKS" ]] && cmp -s <(capture_hooks_json) "$CURSOR_HOOKS"; then
-      echo "ok      $CURSOR_HOOKS (capture hook)"
-    else
-      echo "missing $CURSOR_HOOKS (capture hook)"
-      status=1
-    fi
+    check_hooks cursor/capture/hooks.json "capture hook"
     link "$NEST_DIR/cursor/capture/probe.sh" "$CURSOR_PROBE"
     return
   fi
 
-  # The commands in hooks.json are not quoted, so that every shell (and no shell) reads them alike.
-  if [[ ! "$NEST_DIR" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-    echo "error: $NEST_DIR contains characters a hook command cannot carry unquoted." >&2
-    exit 1
-  fi
-  local node_bin
-  node_bin="$(command -v node || true)"
-  if [[ -z "$node_bin" || "$node_bin" != /* ]]; then
-    echo "error: node is not on PATH. Install it (brew install node) and run this again." >&2
-    exit 1
-  fi
-  if ! "$node_bin" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 18) ? 0 : 1)'; then
-    echo "error: $node_bin is $("$node_bin" --version); the hooks need Node 22.18 or newer." >&2
-    exit 1
-  fi
-
-  mkdir -p "$NEST_CONFIG_DIR" "$NEST_STATE_DIR" "$CURSOR_DIR/hooks"
-  printf '%s\n' "$node_bin" > "$NEST_CONFIG_DIR/cursor-node"
-  echo "node    $node_bin (recorded in $NEST_CONFIG_DIR/cursor-node)"
-
-  local generated
-  generated="$(mktemp "${TMPDIR:-/tmp}/pecker-nest-hooks.XXXXXX")"
-  capture_hooks_json > "$generated"
-  if ! "$node_bin" -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf-8"))' "$generated"; then
-    rm -f "$generated"
-    echo "error: the generated hooks.json is not valid JSON." >&2
-    exit 1
-  fi
-  if [[ -f "$CURSOR_HOOKS" ]] && cmp -s "$generated" "$CURSOR_HOOKS"; then
-    rm -f "$generated"
-    echo "ok      $CURSOR_HOOKS (capture hook)"
-  else
-    if [[ -e "$CURSOR_HOOKS" || -L "$CURSOR_HOOKS" ]]; then
-      backup "$CURSOR_HOOKS"
-    fi
-    mv "$generated" "$CURSOR_HOOKS"
-    chmod 644 "$CURSOR_HOOKS"
-    echo "wrote   $CURSOR_HOOKS (capture hook)"
-  fi
+  check_hook_path
+  record_node
+  mkdir -p "$CURSOR_DIR/hooks"
+  install_hooks cursor/capture/hooks.json "capture hook"
   link "$NEST_DIR/cursor/capture/probe.sh" "$CURSOR_PROBE"
   echo
   echo "The capture log is $NEST_STATE_DIR/capture.jsonl."
@@ -251,5 +323,16 @@ done
 if (( LINK_CLAUDE )); then link_skills "$CLAUDE_DIR/skills"; fi
 if (( LINK_CURSOR )); then link_skills "$CURSOR_DIR/skills"; fi
 if (( LINK_PI )); then link_skills "$AGENT_DIR/skills"; fi
+
+# The Cursor adapter (docs/SETUP.md, "Cursor"): hooks, reviewer subagent, skills.
+if (( LINK_CURSOR )); then
+  cursor_adapter
+  if (( ! CHECK_ONLY )); then
+    echo
+    echo "Cursor adapter installed. Restart Cursor (Cmd+Q), then trust the repositories the gate may run in:"
+    echo "  $EXPECTED_DIR/scripts/cursor-trust.sh add <repo>"
+    echo "and paste $NEST_DIR/cursor/user-rule.md into Cursor's User Rules."
+  fi
+fi
 
 exit "$status"
