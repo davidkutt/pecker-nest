@@ -23,7 +23,8 @@ import { fileURLToPath } from "node:url";
 import { MockOpenRouter, type MockRequest, mockProvider, type Reply } from "./mock-openrouter.ts";
 
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const PI = process.env.PI_BIN ?? "pi";
+// A relative path (`PI_BIN=node_modules/.bin/pi`, AGENTS.md) would be looked up in each scenario's repository.
+const PI = process.env.PI_BIN?.includes("/") ? resolve(process.env.PI_BIN) : (process.env.PI_BIN ?? "pi");
 const GLM = "z-ai/glm-5.3";
 const KIMI = "moonshotai/kimi-k3.1-pro";
 const FLASH = "deepseek/deepseek-v4.1-flash-1017";
