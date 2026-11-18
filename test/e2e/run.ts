@@ -466,7 +466,8 @@ const scenarios: [string, () => Promise<void>][] = [
 		"/plan writes only PLAN.md and does not start the gate (test 2)",
 		async () => {
 			const repo = makeRepo("plan", {});
-			sh(repo, "echo bad > value.txt && git commit -qam red");
+			// Without a global git identity the commit needs one of its own.
+			sh(repo, "echo bad > value.txt && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git commit -qam red");
 			const run = await runPi(repo, ["-p", "--approve", "/plan add a greeting [scenario:plan]"]);
 			assert.equal(run.code, 0, run.stderr);
 			const [first, afterApp] = requestsFor("plan");

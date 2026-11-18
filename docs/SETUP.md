@@ -111,7 +111,7 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
 
    `--claude` verlinkt zusätzlich die Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/` (Runbook M7), `--cursor` nach `~/.cursor/skills/` und installiert dazu den Cursor-Adapter (Abschnitt 8), `--pi` nach `~/.pi/agent/skills/`; die Optionen lassen sich kombinieren. Ohne sie bleiben Claude Code, Cursor und Pis Skills unberührt. In einem Skill-Verzeichnis verschiebt das Skript nichts: Was dort kein Link in dieses Repo ist, meldet es als `foreign` und lässt es stehen.
 
-   Das Skript löscht nichts. Vorhandene Dateien benennt es in `<name>.bak.<zeitstempel>` um und zeigt jede Aktion an. `auth.json` und deine Sessions bleiben, wo sie sind. Hattest du in der alten `settings.json` eigene Packages oder Einstellungen, übernimm sie in `~/dev/pecker-nest/agent/settings.json`.
+   Das Skript löscht nichts. Vorhandene Dateien benennt es in `<name>.bak.<zeitstempel>.<pid>` um und zeigt jede Aktion an. `auth.json` und deine Sessions bleiben, wo sie sind. Hattest du in der alten `settings.json` eigene Packages oder Einstellungen, übernimm sie in `~/dev/pecker-nest/agent/settings.json`.
 
    Prüfen lässt sich der Stand jederzeit mit `~/dev/pecker-nest/scripts/link.sh --check`.
 
@@ -226,7 +226,7 @@ In Cursor gelten dieselben Sicherheitsregeln und dasselbe Quality Gate wie in ne
    ~/dev/pecker-nest/scripts/link.sh --cursor
    ```
 
-   Das Skript verlinkt wie immer Pis Dateien und die Supervision-Skills nach `~/.cursor/skills/`. Dazu schreibt es `~/.cursor/hooks.json` (eine vorhandene Datei wird zu `hooks.json.bak.<zeitstempel>`), verlinkt den Reviewer-Subagent nach `~/.cursor/agents/reviewer.md` und die Skills `grill-me`, `testing-ts` und `testing-py` nach `~/.agents/skills/`. `best-practices` bleibt draußen: Es braucht die Knowledge Base, und die gibt es in Cursor nicht.
+   Das Skript verlinkt wie immer Pis Dateien und die Supervision-Skills nach `~/.cursor/skills/`. Dazu schreibt es `~/.cursor/hooks.json` (eine vorhandene Datei wird zu `hooks.json.bak.<zeitstempel>.<pid>`), verlinkt den Reviewer-Subagent nach `~/.cursor/agents/reviewer.md` und die Skills `grill-me`, `testing-ts` und `testing-py` nach `~/.agents/skills/`. `best-practices` bleibt draußen: Es braucht die Knowledge Base, und die gibt es in Cursor nicht.
 
    Es merkt sich außerdem den aufgelösten Pfad deines Node in `~/.config/pecker-nest/cursor-node`. Cursor startet Hooks ohne deine Shell, und `command -v node` zeigt bei fnm in ein Verzeichnis, das mit der Shell verschwindet. Nach einem Node-Update oder `fnm uninstall` den Befehl wiederholen. Drei der Hooks blockieren bei einem Fehler (`failClosed`): Findet der Hook kein Node, lehnt Cursor jeden Befehl und jeden Dateizugriff ab und nennt den Befehl zum Reparieren.
 
@@ -329,8 +329,8 @@ Der Rest ist in allen drei Shells gleich:
 
 ```bash
 find prompts -type l -lname '*pecker-nest*' -delete
-ls *.bak.*                                       # deine gesicherten Dateien
-mv settings.json.bak.<zeitstempel> settings.json  # je Datei, die du zurückhaben willst
+ls *.bak.*                                              # deine gesicherten Dateien
+mv settings.json.bak.<zeitstempel>.<pid> settings.json  # je Datei, die du zurückhaben willst
 ```
 
 Die Supervision-Skills (alles Symlinks, in allen drei Shells gleich): `rm ~/.claude/skills/nest-supervise ~/.claude/skills/nest-handoff`, ebenso unter `~/.cursor/skills/` und `~/.pi/agent/skills/`, je nachdem, wohin du sie verlinkt hast. Den Container-Key aus dem Schlüsselbund: `security delete-generic-password -a "$USER" -s pecker-nest-container-key`.

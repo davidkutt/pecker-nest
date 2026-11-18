@@ -51,7 +51,7 @@ Alle Befehle in diesem Runbook laufen in bash, zsh und fish gleich. Wo sich fish
    ~/dev/pecker-nest/scripts/link.sh
    ```
 
-   Vorhandene Dateien in `~/.pi/agent` werden nicht gelöscht, sondern als `*.bak.<zeitstempel>` beiseitegelegt. Schau in die Backups deiner alten `settings.json` und `models.json`. Übernimm, was du behalten willst, in die Dateien unter `~/dev/pecker-nest/agent/`. `auth.json` und Sessions bleiben unberührt.
+   Vorhandene Dateien in `~/.pi/agent` werden nicht gelöscht, sondern als `*.bak.<zeitstempel>.<pid>` beiseitegelegt. Schau in die Backups deiner alten `settings.json` und `models.json`. Übernimm, was du behalten willst, in die Dateien unter `~/dev/pecker-nest/agent/`. `auth.json` und Sessions bleiben unberührt.
 
 4. `pi` starten. Beim ersten Start installiert Pi `pi-subagents@0.87.0` (ein paar Sekunden). Dann anmelden:
 
