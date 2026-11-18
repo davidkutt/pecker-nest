@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/before-submit-prompt.ts",
+        "timeout": 60
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/before-shell-execution.ts",
+        "timeout": 20,
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/pre-tool-use.ts",
+        "matcher": "Shell|Read|Grep|Write|Delete|StrReplace|Edit|MultiEdit|ApplyPatch",
+        "timeout": 20,
+        "failClosed": true
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/before-read-file.ts",
+        "timeout": 20,
+        "failClosed": true
+      }
+    ],
+    "beforeTabFileRead": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/before-tab-file-read.ts",
+        "timeout": 10
+      }
+    ],
+    "stop": [
+      {
+        "command": "@NEST_DIR@/cursor/node.sh hooks/stop.ts",
+        "timeout": 900,
+        "loop_limit": 5
+      }
+    ]
+  }
+}

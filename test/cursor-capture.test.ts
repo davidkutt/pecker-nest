@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -271,7 +271,7 @@ describe("capture as a process", () => {
 		const missing = hook(home, "preToolUse", JSON.stringify(PAYLOADS.preToolUse));
 		assert.equal(missing.status, 1);
 		assert.equal(missing.stdout, "");
-		assert.match(missing.stderr, /cursor-node is missing.*link\.sh --cursor-capture/);
+		assert.match(missing.stderr, /cursor-node is missing.*link\.sh --cursor again \(--cursor-capture for the capture hook\)/);
 
 		recordNode(home, join(home, "no-such-node"));
 		const gone = hook(home, "preToolUse", JSON.stringify(PAYLOADS.preToolUse));
@@ -294,6 +294,25 @@ describe("capture as a process", () => {
 		assert.equal(line.PATH, "/usr/bin:/bin");
 		assert.equal(line.bytes, Buffer.byteLength(JSON.stringify(PAYLOADS.beforeSubmitPrompt)));
 		assertNoSecrets(JSON.stringify(line));
+	});
+
+	it("probe.sh keeps every line whole when the four probes start at the same moment", async () => {
+		const home = scratch();
+		const forms = ["absolute", "relative", "tilde", "home-variable"];
+		const runs = [...forms, ...forms, ...forms].map(
+			(form) =>
+				new Promise<number | null>((done) => {
+					// bash (macOS's /bin/sh) writes a line longer than 4096 bytes in pieces: the case of 17.11.2026.
+					const child = spawn("bash", [PROBE, "sessionStart", form], { cwd: home, env: { HOME: home, PATH: `/usr/bin:/bin:${"/x".repeat(4000)}`, SHELL: "/bin/zsh" } });
+					child.stdin.end(JSON.stringify(PAYLOADS.beforeSubmitPrompt));
+					child.on("close", done);
+				}),
+		);
+		assert.deepEqual(await Promise.all(runs), runs.map(() => 0));
+		const lines = logLines(home);
+		assert.equal(lines.length, 12, "every probe wrote exactly one line that parses");
+		assert.deepEqual([...new Set(lines.map((line) => line.probe))].sort(), [...forms].sort());
+		assert.ok(!existsSync(join(home, ".local/state/pecker-nest/cursor/capture.lock")), "the lock is gone");
 	});
 });
 

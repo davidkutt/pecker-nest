@@ -18,11 +18,11 @@
  * every subagent child.
  */
 
-import { existsSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { canonicalPath as canonical } from "./lib/canonical-path.ts";
+import { harnessDirs } from "./lib/harness.ts";
 import { existingMatches, loadProtectConfig, PROTECT_CONFIG_PATH } from "./lib/protect-config.ts";
 import {
 	bashCommandReason,
@@ -34,34 +34,11 @@ import {
 	redactProtectedLines,
 } from "./lib/safety-rules.ts";
 
-/** The path with symlinks resolved, also for files that do not exist yet. */
-function canonical(path: string): string {
-	let current = resolve(path);
-	const rest: string[] = [];
-	while (!existsSync(current)) {
-		const parent = dirname(current);
-		if (parent === current) return resolve(path);
-		rest.unshift(basename(current));
-		current = parent;
-	}
-	try {
-		return join(realpathSync(current), ...rest);
-	} catch {
-		return resolve(path);
-	}
-}
-
 /**
  * Directories the agent must never write: this package, Pi's agent directory and Claude Code's
- * config directory. Claude Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells
- * agents to write skills to `~/.claude/skills`, so without the third entry nest could change
- * the settings, skills and hooks of the harness that watches it.
+ * config directory (lib/harness.ts says why).
  */
-const HARNESS_DIRS = [
-	canonical(resolve(dirname(fileURLToPath(import.meta.url)), "..")),
-	canonical(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent")),
-	canonical(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
-];
+const HARNESS_DIRS = harnessDirs({ nestDir: resolve(dirname(fileURLToPath(import.meta.url)), "..") });
 
 const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILTERED_TOOLS = new Set(["grep", "find", "ls", "bash"]);

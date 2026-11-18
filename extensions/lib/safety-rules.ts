@@ -45,6 +45,15 @@ export interface PathPolicy {
 	commands?: readonly CommandRule[];
 	/** Absolute, canonical directories of the harness itself (this package, Pi's agent directory). */
 	harnessDirs: readonly string[];
+	/**
+	 * Files that configure the harness wherever they lie, as globs over the absolute path without its
+	 * leading `/` (lib/harness.ts: CURSOR_HARNESS_FILES). The Cursor adapter sets them; Pi does not.
+	 */
+	harnessFiles?: readonly string[];
+	/** Absolute, canonical directories inside `harnessDirs` that are not harness (Cursor's worktrees). */
+	harnessExceptions?: readonly string[];
+	/** The agent's name in harness reasons ("change the harness outside pi"); defaults to pi. */
+	agent?: string;
 	/** Resolves symlinks; defaults to the path itself. */
 	canonical?: (absolute: string) => string;
 }
@@ -70,8 +79,13 @@ function repoPath(path: string, policy: PathPolicy): string | undefined {
 function harnessReason(path: string, policy: PathPolicy): string | undefined {
 	const canonical = policy.canonical ?? ((value: string) => value);
 	const target = canonical(absolutePath(path, policy.cwd));
-	const dir = policy.harnessDirs.find((candidate) => target === candidate || target.startsWith(candidate + sep));
-	return dir ? `${path} is part of the agent harness (${dir}); change the harness outside pi` : undefined;
+	const agent = policy.agent ?? "pi";
+	const inside = (candidate: string) => target === candidate || target.startsWith(candidate + sep);
+	const dir = policy.harnessExceptions?.some(inside) ? undefined : policy.harnessDirs.find(inside);
+	if (dir) return `${path} is part of the agent harness (${dir}); change the harness outside ${agent}`;
+	const slashed = target.split(sep).join("/").replace(/^\/+/, "");
+	const file = policy.harnessFiles?.find((glob) => globToRegExp(glob).test(slashed));
+	return file ? `${path} configures the agent harness (${file}); change it outside ${agent}` : undefined;
 }
 
 /** Reason why `path` must not be read under the repository's rules, or undefined. */
@@ -79,6 +93,53 @@ export function protectedReadReason(path: string, policy: PathPolicy): string | 
 	const rel = repoPath(unquote(path), policy);
 	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.read);
 	return glob ? `${rel} is protected by ${PROTECT_CONFIG_PATH} (read: ${glob})` : undefined;
+}
+
+/**
+ * Reason why a search must not run under `root` with the include glob `glob`, for search tools
+ * that cannot remove lines from their output (Cursor's Grep): `root` is read-protected, or an
+ * existing read-protected file lies below it and matches the glob, or the glob itself points out of
+ * the root (`..`, an absolute path, `~`), so its reach cannot be told from the root. A missing
+ * `root` means the repository root; a root above the repository covers all of it. Globs follow
+ * ripgrep: without a `/` they match the file name at any depth. Braces, character classes and
+ * negations count as matching everything, so the rule errs on the side of blocking.
+ */
+export function searchReadReason(root: string | undefined, glob: string | undefined, policy: PathPolicy): string | undefined {
+	const pattern = glob?.trim();
+	if (pattern && (/^[/~$]/.test(pattern) || /(?:^|\/)\.\.(?:\/|$)/.test(pattern))) {
+		return `the glob ${pattern} reaches outside the search root; search that folder by its path instead`;
+	}
+	const start = root === undefined || !unquote(root) ? policy.cwd : unquote(root);
+	const direct = protectedReadReason(start, policy);
+	if (direct) return direct;
+	const files = policy.readFiles ?? [];
+	if (!policy.read.length || !files.length) return undefined;
+	const canonical = policy.canonical ?? ((value: string) => value);
+	const base = canonical(policy.cwd);
+	const target = canonical(absolutePath(start, policy.cwd));
+	const rel = relative(base, target);
+	let prefix = "";
+	if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+		const up = relative(target, base);
+		if (up === ".." || up.startsWith(`..${sep}`) || isAbsolute(up)) return undefined;
+	} else prefix = rel.split(sep).join("/");
+	const included = includeMatcher(glob);
+	const hit = files.find((file) => {
+		if (prefix && file !== prefix && !file.startsWith(`${prefix}/`)) return false;
+		return included(prefix ? file.slice(prefix.length + 1) : file, file);
+	});
+	if (!hit) return undefined;
+	const shown = root === undefined || !unquote(root) ? "the repository root" : unquote(root);
+	return `a search under ${shown}${glob?.trim() ? ` for ${glob.trim()}` : ""} can reach ${hit}, which is protected by ${PROTECT_CONFIG_PATH} (read); search a narrower path or use a glob that leaves it out`;
+}
+
+/** ripgrep's include glob as a test on a file's path below the search root and in the repository. */
+function includeMatcher(glob: string | undefined): (belowRoot: string, inRepo: string) => boolean {
+	const cleaned = glob?.trim();
+	if (!cleaned || /[{}[\]!]/.test(cleaned)) return () => true;
+	const pattern = globToRegExp(cleaned.replace(/^\//, ""));
+	if (!cleaned.includes("/")) return (belowRoot) => pattern.test(basename(belowRoot));
+	return (belowRoot, inRepo) => pattern.test(belowRoot) || pattern.test(inRepo);
 }
 
 function policyWriteReason(path: string, policy: PathPolicy): string | undefined {

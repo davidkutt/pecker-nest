@@ -30,8 +30,9 @@ function scratchHome(): string {
 	return home;
 }
 
+// --cursor also installs the Cursor adapter, which records the Node it finds (test/cursor-adapter.test.ts).
 const link = (home: string, ...args: string[]) =>
-	spawnSync(LINK, args, { encoding: "utf-8", env: { HOME: home, PATH: "/usr/bin:/bin", PI_CODING_AGENT_DIR: join(home, "pi-agent") } });
+	spawnSync(LINK, args, { encoding: "utf-8", env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, PI_CODING_AGENT_DIR: join(home, "pi-agent") } });
 
 const skillDirs = (home: string) => ({ claude: join(home, ".claude/skills"), cursor: join(home, ".cursor/skills"), pi: join(home, "pi-agent/skills") });
 

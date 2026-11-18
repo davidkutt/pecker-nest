@@ -23,6 +23,16 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { GATE_CONFIG_PATH, type GateConfig, isDocsOnly, loadGateConfig, outputExcerpt } from "./lib/gate-config.ts";
+import {
+	describeFailure,
+	describeRed,
+	findingCount as count,
+	handBackMessage,
+	handBackReason,
+	isEnvironmentProblem,
+	repairMessage,
+	unchangedFindingsMessage,
+} from "./lib/gate-message.ts";
 import { type Finding, formatFindings, snapshotTree, tamperFindings } from "./lib/tamper-check.ts";
 import { changedPaths, snapshotKey, takeSnapshot, type WorktreeSnapshot } from "./lib/worktree.ts";
 
@@ -42,8 +52,6 @@ interface TamperResult {
 	/** The working tree it looked at, which becomes the next baseline once the gate settles. */
 	tree?: string;
 }
-
-const count = (findings: readonly Finding[]) => `${findings.length} finding${findings.length === 1 ? "" : "s"}`;
 
 export default function (pi: ExtensionAPI) {
 	let enabled = process.env.PI_NEST_GATE !== "off";
@@ -82,18 +90,6 @@ export default function (pi: ExtensionAPI) {
 		} finally {
 			if (ctx.hasUI) ctx.ui.setStatus(CUSTOM_TYPE, undefined);
 		}
-	}
-
-	function describeFailure(config: GateConfig, result: CheckResult): string {
-		const why = result.timedOut ? `timed out after ${config.timeoutSeconds}s` : `failed with exit code ${result.code}`;
-		return `\`${config.command}\` ${why}`;
-	}
-
-	/** The headline of a red gate: the failed check, the findings, or both. */
-	function describeRed(config: GateConfig, result: CheckResult, findings: readonly Finding[]): string {
-		if (!findings.length) return describeFailure(config, result);
-		if (result.ok) return `\`${config.command}\` passed, but the weakened-test check has ${count(findings)}`;
-		return `${describeFailure(config, result)}, and the weakened-test check has ${count(findings)}`;
 	}
 
 	/** `ok` is the gate's verdict: the check passed and nothing was weakened. `checkOk` is the command alone. */
@@ -205,11 +201,7 @@ export default function (pi: ExtensionAPI) {
 						type: "custom_message" as const,
 						customType: CUSTOM_TYPE,
 						display: true,
-						content: [
-							`[quality-gate] ${count(findings)} of the weakened-test check remain${findings.length === 1 ? "s" : ""} after the last round, which changed nothing. Handing back to the user.`,
-							"",
-							...list,
-						].join("\n"),
+						content: unchangedFindingsMessage(findings),
 					},
 				],
 			};
@@ -232,27 +224,11 @@ export default function (pi: ExtensionAPI) {
 		lastFailedKey = key;
 		openFindings = findings;
 		const red = describeRed(config, result, findings);
-		const output = result.ok ? "" : outputExcerpt(result.output) || "(no output)";
-		const outputBlock = result.ok ? [] : ["", "```", output, "```"];
 		const list = formatFindings(findings);
 
 		// Exit code 127: the check command itself is missing. The agent cannot fix that.
-		const environmentProblem = result.code === 127;
-		if (!environmentProblem && rounds < config.maxRepairRounds) {
+		if (!isEnvironmentProblem(result) && rounds < config.maxRepairRounds) {
 			rounds++;
-			const checkPart = result.ok
-				? []
-				: [
-						"Fix the cause of the failures below. Do not delete, skip or weaken tests and do not loosen lint or type settings. If a failure is unrelated to your task or cannot be fixed in code, say so and stop.",
-					];
-			const tamperPart = findings.length
-				? [
-						...(result.ok ? [] : [""]),
-						"The changes since the task started weaken what the check verifies:",
-						...list,
-						"For each of these: revert it, or, if the change is right (for example because the task asked for it), keep it and say why in one sentence. Do not hide a finding by rewording it. What remains is shown to the user.",
-					]
-				: [];
 			return {
 				entries: [
 					...event.entries,
@@ -261,22 +237,14 @@ export default function (pi: ExtensionAPI) {
 						type: "custom_message" as const,
 						customType: CUSTOM_TYPE,
 						display: true,
-						content: [
-							`[quality-gate] ${red}. Repair round ${rounds} of ${config.maxRepairRounds}.`,
-							...checkPart,
-							...tamperPart,
-							result.ok ? "When nothing is left to do, end with a complete summary of the task." : "When the check passes, end with a complete summary of the task.",
-							...outputBlock,
-						].join("\n"),
+						content: repairMessage(config, result, findings, rounds),
 					},
 				],
 				continue: true,
 			};
 		}
 
-		const stopReason = environmentProblem
-			? "the check command was not found (exit 127); fix the environment"
-			: `still red after ${rounds} repair round(s)`;
+		const stopReason = handBackReason(result, rounds);
 		tell(ctx, `Gate ${stopReason}: ${red}.${findings.length ? `\n${list.join("\n")}` : ""}`, "error");
 		baseline = current;
 		baseTree = tamper.tree ?? baseTree;
@@ -290,7 +258,7 @@ export default function (pi: ExtensionAPI) {
 					type: "custom_message" as const,
 					customType: CUSTOM_TYPE,
 					display: true,
-					content: [`[quality-gate] ${red}; ${stopReason}. Handing back to the user.`, ...(findings.length ? ["", ...list] : []), ...outputBlock].join("\n"),
+					content: handBackMessage(config, result, findings, stopReason),
 				},
 			],
 		};

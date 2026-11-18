@@ -5,6 +5,9 @@
 #   scripts/doctor.sh --docker        also check what headless runs need (docker/pi-run.sh): the
 #                                     Docker daemon, the image, and the container key as a must
 #   scripts/doctor.sh --repo <path>   also check a repository nest is about to work in
+#   scripts/doctor.sh --cursor        also check the Cursor adapter: its links, the Node its hooks
+#                                     start (a broken one blocks every command in Cursor), the
+#                                     trust list, and what else Cursor loads from ~/.claude
 #
 # Every check prints one line that starts with PASS, WARN or FAIL; a WARN or FAIL line ends with
 # the fix. A SKIP line names checks that were left out and how to include them; it counts as
@@ -16,16 +19,21 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: scripts/doctor.sh [--docker] [--repo <path>]" >&2
+  echo "usage: scripts/doctor.sh [--docker] [--repo <path>] [--cursor]" >&2
   exit 2
 }
 
 target_repo=""
 check_docker=0
+check_cursor=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --docker)
       check_docker=1
+      shift
+      ;;
+    --cursor)
+      check_cursor=1
       shift
       ;;
     --repo)
@@ -324,6 +332,82 @@ if [[ -n "$target_repo" ]]; then
       else
         pass "target: AGENTS.md exists and has no TODO left"
       fi
+    fi
+  fi
+fi
+
+# ------------------------------------------------------------------ Cursor adapter
+
+claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if [[ "$check_cursor" == 1 ]]; then
+  cursor_report="$("$nest_dir/scripts/link.sh" --check --cursor 2>&1)"
+  cursor_lines="$(echo "$cursor_report" | grep -E '(/\.cursor/|/\.agents/|^(ok|missing) +node )' || true)"
+  cursor_missing="$(echo "$cursor_lines" | grep -c '^missing' || true)"
+  cursor_foreign="$(echo "$cursor_lines" | grep -m 1 '^foreign' || true)"
+  if [[ -n "$cursor_foreign" ]]; then
+    fail "cursor: ${cursor_foreign#foreign }. Fix: move it away, then $nest_dir/scripts/link.sh --cursor"
+  elif [[ -z "$cursor_lines" ]]; then
+    fail "cursor: scripts/link.sh --check --cursor gave no answer ($(echo "$cursor_report" | head -1)). Fix: $nest_dir/scripts/link.sh --cursor"
+  elif [[ "$cursor_missing" -gt 0 ]]; then
+    fail "cursor: $cursor_missing of the adapter's links missing or out of date (hooks, reviewer subagent, skills, Node). Fix: $nest_dir/scripts/link.sh --cursor"
+  else
+    pass "cursor: hooks, reviewer subagent and skills are installed (scripts/link.sh --check --cursor)"
+  fi
+
+  # With failClosed, a hook that cannot start Node blocks every command, write and read in Cursor.
+  node_file="$HOME/.config/pecker-nest/cursor-node"
+  cursor_node="$(sed -n '1p' "$node_file" 2>/dev/null)"
+  if [[ -z "$cursor_node" ]]; then
+    fail "cursor: no Node recorded in $node_file, so Cursor blocks every command and file access. Fix: $nest_dir/scripts/link.sh --cursor"
+  elif [[ "$cursor_node" == *fnm_multishells* ]]; then
+    fail "cursor: the recorded Node $cursor_node lies in a per-shell directory of fnm that disappears with the shell. Fix: $nest_dir/scripts/link.sh --cursor (it records the resolved path)"
+  elif [[ ! -x "$cursor_node" ]]; then
+    fail "cursor: the recorded Node $cursor_node is gone (a Node update or uninstall?), so Cursor blocks every command and file access. Fix: $nest_dir/scripts/link.sh --cursor"
+  else
+    cursor_node_version="$("$cursor_node" --version 2>/dev/null)"
+    if [[ -z "$cursor_node_version" ]]; then
+      fail "cursor: the recorded Node $cursor_node does not start. Fix: $nest_dir/scripts/link.sh --cursor"
+    elif [[ "$(version_cmp "$cursor_node_version" 22.18.0)" == -1 ]]; then
+      fail "cursor: the recorded Node $cursor_node is ${cursor_node_version#v}, older than 22.18. Fix: install a newer Node, then $nest_dir/scripts/link.sh --cursor"
+    else
+      pass "cursor: the hooks start Node ${cursor_node_version#v} at $cursor_node"
+    fi
+  fi
+
+  trust_file="$HOME/.config/pecker-nest/cursor-trusted"
+  if [[ ! -e "$trust_file" ]]; then
+    warn "cursor: no repository is trusted ($trust_file is missing), so the quality gate runs nowhere; the safety hooks apply anyway. Fix: $nest_dir/scripts/cursor-trust.sh add <repo>"
+  elif [[ ! -r "$trust_file" ]]; then
+    fail "cursor: $trust_file is not readable, so the quality gate runs nowhere. Fix: chmod 644 $trust_file"
+  else
+    trusted_count=0
+    gone=""
+    while IFS= read -r entry; do
+      case "$entry" in "" | \#*) continue ;; esac
+      trusted_count=$((trusted_count + 1))
+      [[ -d "$entry" ]] || gone="${gone:+$gone, }$entry"
+    done <"$trust_file"
+    if [[ -n "$gone" ]]; then
+      warn "cursor: the trust list names repositories that do not exist: $gone. Fix: $nest_dir/scripts/cursor-trust.sh remove <path>"
+    elif [[ "$trusted_count" -eq 0 ]]; then
+      warn "cursor: the trust list is empty, so the quality gate runs nowhere; the safety hooks apply anyway. Fix: $nest_dir/scripts/cursor-trust.sh add <repo>"
+    else
+      pass "cursor: $trusted_count repositor$([[ "$trusted_count" -eq 1 ]] && echo y || echo ies) trusted for the quality gate (scripts/cursor-trust.sh list)"
+    fi
+  fi
+
+  # Cursor also loads skills and hooks from Claude Code's directory (Third-Party Imports, on by default).
+  visible=""
+  for name in nest-supervise nest-handoff; do
+    [[ -e "$claude_dir/skills/$name" ]] && visible="${visible:+$visible and }$name"
+  done
+  if [[ -n "$visible" ]]; then
+    warn "cursor: $visible are visible to Cursor through $claude_dir/skills/ as well as ~/.cursor/skills/, which is why they show up twice. Fix: nothing needed; after the Claude Code exit remove the links in $claude_dir/skills/"
+  fi
+  if [[ -r "$claude_dir/settings.json" ]] && have node; then
+    claude_hooks="$(node -e 'try { const hooks = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks; console.log(Object.keys(hooks && typeof hooks === "object" ? hooks : {}).join(", ")) } catch { console.log("") }' "$claude_dir/settings.json" 2>/dev/null)"
+    if [[ -n "$claude_hooks" ]]; then
+      warn "cursor: $claude_dir/settings.json has hooks ($claude_hooks); Cursor runs them as well, with Cursor's payload (tool Shell, not Bash). Fix: remove them, or turn off Settings → Agents → Third-Party Imports in Cursor"
     fi
   fi
 fi
