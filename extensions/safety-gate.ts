@@ -2,7 +2,8 @@
  * Safety gate: blocks destructive shell commands and writes to protected paths before
  * they run. Pi itself asks before no tool call, so this is the only stop.
  *
- * - bash: rm -rf, git push, git reset --hard, git clean -f, curl … | sh, and writes to
+ * - bash: rm -rf, git push (also through an alias, send-pack or subtree push), git reset --hard,
+ *   git clean -f, gh commands that merge, approve, close or comment, curl … | sh, and writes to
  *   .env*, .git/, .pi/, keys and other credential files (see lib/safety-rules.ts).
  * - edit/write: the same protected paths, plus the harness itself: this package, Pi's agent
  *   directory and Claude Code's config directory (${CLAUDE_CONFIG_DIR:-~/.claude}). The agent

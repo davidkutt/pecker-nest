@@ -367,7 +367,7 @@ Weggefallen: DeepSeek V4 Pro 0813 (DeepSeek leitet V4 Pro seit dem 14.09. auf V4
 
 ## Safety Gate im Detail
 
-- **bash:** blockiert `rm` mit `-r` und `-f` (in jeder Schreibweise) und rekursives `rm` auf `/`, `~` oder `..`. Ebenso `git push` (auch `git -C … push`), `git reset --hard`, `git clean -f…` und Downloads, die in eine Shell oder einen Interpreter gepipt werden (`curl … | sh`, `sh <(curl …)`, `bash -c "$(curl …)"`). Das gilt auch hinter `sudo`, `env`, `xargs`, `timeout`, `bash -c` und `find -exec`.
+- **bash:** blockiert `rm` mit `-r` und `-f` (in jeder Schreibweise) und rekursives `rm` auf `/`, `~` oder `..`. Ebenso `git push` (auch `git -C … push`, seit 18.11. auch über einen Alias mit `-c alias.…`, `--config-env` oder `git config alias.…`, über `git send-pack` und `git subtree push`), `git reset --hard`, `git clean -f…`, seit 18.11. `gh`-Befehle, die mergen, approven, schließen, kommentieren oder sonst auf GitHub schreiben (`gh pr merge`, `gh api -X POST …`), und Downloads, die in eine Shell oder einen Interpreter gepipt werden (`curl … | sh`, `sh <(curl …)`, `bash -c "$(curl …)"`). Das gilt auch hinter `sudo`, `env`, `xargs`, `timeout`, `bash -c` (auch `sh -lc`, `zsh -ic`) und `find -exec`.
 - **Schreibzugriffe:** `edit`, `write` und bash-Umleitungen, `tee`, `cp`, `mv`, `sed -i` usw. auf geschützte Pfade sind gesperrt:
   - `.env`, `.env.*` (außer `.env.example`, `.sample`, `.template`, `.dist`)
   - alles unter `.git/`, `.ssh/`, `.aws/`, `.gnupg/`

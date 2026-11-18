@@ -20,6 +20,7 @@ These rules apply in every repository. A repository's `AGENTS.md` adds project r
 
 - Destructive commands (`rm -rf`, `git push`, `git reset --hard`, `git clean -fdx`, piping downloads into a shell), writes to `.env*`, secret files, `.pi/` or the hook configuration, and reads of files a repository protects are blocked by hooks. Do not try to get around a block; tell the user what you wanted to do and why.
 - Never print, copy or commit credentials.
+- Never merge, approve, close or comment on pull requests or issues; the user does that.
 
 ## Subagents
 

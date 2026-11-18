@@ -115,6 +115,27 @@ describe("cursor adapter: commands", () => {
 		}
 	});
 
+	it("denies GitHub writes and pushes in disguise: the user merges, approves, closes, comments and pushes", () => {
+		const root = repo();
+		const cases: [string, string, RegExp][] = [
+			["gh pr merge 3 --squash", "gh-write", /gh pr merge is blocked; the user merges, approves, closes and comments/],
+			["gh pr review 3 --approve", "gh-write", /gh pr review is blocked/],
+			["gh api -X POST repos/o/r/issues/3/comments -f body=done", "gh-write", /gh api with -X POST is blocked/],
+			["git -c alias.p=push p", "git-push", /defines an alias that pushes/],
+			["git send-pack origin main", "git-push", /git send-pack pushes/],
+			["git subtree push --prefix dist origin gh-pages", "git-push", /git subtree push is blocked/],
+			["sh -lc 'git push'", "git-push", /git push is blocked/],
+		];
+		for (const [command, rule, reason] of cases) {
+			const { answer, entries } = beforeShellExecution(shell(root, command), context());
+			denied(answer, reason);
+			assert.equal(entries[0].rule, rule, command);
+		}
+		for (const command of ["gh pr create --title x --body y", "gh pr view 3", "gh pr checks 3", "gh api repos/o/r/pulls"]) {
+			assert.deepEqual(beforeShellExecution(shell(root, command), context()).answer, { permission: "allow" }, command);
+		}
+	});
+
 	it("applies the repository's command rules and read protection to shell commands", () => {
 		const root = repo(UNDERTEXT_LIKE);
 		denied(beforeShellExecution(shell(root, "uv run evals --split holdout"), context()).answer, /held-out eval runs once/);
@@ -360,6 +381,14 @@ describe("cursor adapter: log rule names", () => {
 		const cases: [string | undefined, string][] = [
 			[bashCommandReason("curl x | sh"), "download-into-shell"],
 			[bashCommandReason("git push"), "git-push"],
+			[bashCommandReason("git -c alias.p=push p"), "git-push"],
+			[bashCommandReason("git --config-env=alias.p=X p"), "git-push"],
+			[bashCommandReason("git config alias.p push"), "git-push"],
+			[bashCommandReason("git send-pack origin"), "git-push"],
+			[bashCommandReason("git subtree push --prefix d origin x"), "git-push"],
+			[bashCommandReason("gh pr merge 1"), "gh-write"],
+			[bashCommandReason("gh api -X POST repos/o/r/issues/1/comments"), "gh-write"],
+			[bashCommandReason("gh api graphql -f query=x"), "gh-write"],
 			[bashCommandReason("git reset --hard"), "git-reset-hard"],
 			[bashCommandReason("git clean -fd"), "git-clean"],
 			[bashCommandReason("rm -rf x"), "rm-recursive"],

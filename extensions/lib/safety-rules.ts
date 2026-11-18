@@ -235,7 +235,26 @@ const DOWNLOAD_INTO_SHELL = [
 /** Wrappers that run the command that follows them. */
 const PASS_THROUGH = new Set(["sudo", "doas", "command", "exec", "nohup", "time", "env", "xargs", "nice", "timeout", "stdbuf"]);
 /** Git global options that take a separate value: `git -C dir push`. */
-const GIT_OPTIONS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+const GIT_OPTIONS_WITH_VALUE = new Set(["-C", "-c", "--config-env", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+/**
+ * gh subcommands that merge, approve, close, comment or otherwise change GitHub, by command group.
+ * The user does these (AGENTS.md); `gh pr create` and the read commands stay allowed. `gh alias set`
+ * and `import` count too, because an alias can wrap any of them.
+ */
+const GH_WRITES = new Map<string, readonly string[]>([
+	["pr", ["merge", "review", "close", "comment", "reopen", "ready", "edit"]],
+	["issue", ["close", "comment", "delete", "edit", "reopen", "transfer", "lock"]],
+	["repo", ["delete", "archive", "rename", "edit"]],
+	["release", ["create", "delete", "edit"]],
+	["workflow", ["run", "enable", "disable"]],
+	["run", ["cancel", "rerun", "delete"]],
+	["secret", ["set", "delete"]],
+	["variable", ["set", "delete"]],
+	["alias", ["set", "import"]],
+]);
+/** gh options that take a separate value before or after the command group: `gh pr -R owner/repo merge`. */
+const GH_OPTIONS_WITH_VALUE = new Set(["-R", "--repo", "--hostname"]);
+const GH_USER = "the user merges, approves, closes and comments";
 /** Commands whose every path argument is written, moved or deleted. */
 const WRITES_ALL_ARGS = new Set(["tee", "mv", "rm", "shred", "truncate", "unlink", "chmod", "chown"]);
 /** Commands whose last path argument is the destination. */
@@ -295,16 +314,42 @@ function rmReason(args: string[]): string | undefined {
 	return undefined;
 }
 
+/** An alias value that pushes or runs a shell command (`!…`), which can push. */
+function aliasPushes(value: string): boolean {
+	return value.includes("push") || value.trimStart().startsWith("!");
+}
+
+/**
+ * Every reason here ends in "; the user pushes", which the Cursor adapter's log reads (ruleOf). An
+ * alias that pushes counts as a push: `git -c alias.p=push p`, `git config alias.p push`, and
+ * `--config-env`, whose alias value the rule cannot see.
+ */
 function gitReason(args: string[]): string | undefined {
 	let index = 0;
 	while (index < args.length && args[index].startsWith("-")) {
-		index += GIT_OPTIONS_WITH_VALUE.has(args[index]) ? 2 : 1;
+		const option = args[index];
+		const value = args[index + 1] ?? "";
+		const alias = option === "-c" ? /^alias\.[^=]*=(.*)$/i.exec(value) : null;
+		if (alias && aliasPushes(alias[1])) return `git -c ${value} defines an alias that pushes or runs a shell command and is blocked; the user pushes`;
+		const fromEnv = option === "--config-env" ? value : option.startsWith("--config-env=") ? option.slice("--config-env=".length) : "";
+		if (/^alias\./i.test(fromEnv)) return `git --config-env ${fromEnv} takes an alias from the environment and is blocked; the user pushes`;
+		index += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
 	}
 	const subcommand = args[index];
 	const rest = args.slice(index + 1);
 	switch (subcommand) {
 		case "push":
 			return "git push is blocked; the user pushes";
+		case "send-pack":
+			return "git send-pack pushes and is blocked; the user pushes";
+		case "subtree":
+			return rest.includes("push") ? "git subtree push is blocked; the user pushes" : undefined;
+		case "config": {
+			const key = rest.findIndex((arg) => /^alias\./i.test(arg));
+			return key >= 0 && rest.slice(key + 1).some(aliasPushes)
+				? `git config ${rest[key]} defines an alias that pushes or runs a shell command and is blocked; the user pushes`
+				: undefined;
+		}
 		case "reset":
 			return rest.includes("--hard") ? "git reset --hard discards work and is blocked" : undefined;
 		case "clean":
@@ -314,6 +359,59 @@ function gitReason(args: string[]): string | undefined {
 		default:
 			return undefined;
 	}
+}
+
+/** The words of a gh command that are not options or option values, in order. */
+function ghWords(args: string[]): string[] {
+	const words: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--") break;
+		if (GH_OPTIONS_WITH_VALUE.has(arg)) index++;
+		else if (!arg.startsWith("-")) words.push(arg);
+	}
+	return words;
+}
+
+/**
+ * What makes a `gh api` call write, as the user typed it: `-X`/`--method` with anything but GET, or
+ * a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`), with which gh sends POST.
+ * Short options may be combined (`-iX POST`, `-XPOST`).
+ */
+function ghApiWrite(args: string[]): string | undefined {
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--") break;
+		const long = /^--(method|field|raw-field|input)(?:=(.*))?$/.exec(arg);
+		if (long?.[1] === "method") {
+			const method = long[2] ?? args[index + 1] ?? "";
+			if (method.toUpperCase() !== "GET") return `--method ${method}`.trim();
+		} else if (long) return `--${long[1]}`;
+		else if (/^-[A-Za-z]/.test(arg)) {
+			for (let at = 1; at < arg.length; at++) {
+				const letter = arg[at];
+				if (letter === "f" || letter === "F") return `-${letter}`;
+				if (letter === "X") {
+					const method = arg.slice(at + 1).replace(/^=/, "") || args[index + 1] || "";
+					if (method.toUpperCase() !== "GET") return `-X ${method}`.trim();
+					break;
+				}
+				// -H, -p, -q and -t take the rest of the word as their value.
+				if ("Hpqt".includes(letter)) break;
+			}
+		}
+	}
+	return undefined;
+}
+
+/** Reason why a gh command must not run because it writes to GitHub (GH_WRITES, ghApiWrite), or undefined. */
+function ghReason(args: string[]): string | undefined {
+	const [group, action] = ghWords(args);
+	if (group === "api") {
+		const write = ghApiWrite(args);
+		return write ? `gh api with ${write} is blocked; ${GH_USER}` : undefined;
+	}
+	return group && action && GH_WRITES.get(group)?.includes(action) ? `gh ${group} ${action} is blocked; ${GH_USER}` : undefined;
 }
 
 function pathArgs(args: string[]): string[] {
@@ -420,6 +518,7 @@ function simpleCommandReason(words: string[], policy?: PathPolicy): string | und
 	return (
 		(program === "rm" ? rmReason(args) : undefined) ??
 		(program === "git" ? gitReason(args) : undefined) ??
+		(program === "gh" ? ghReason(args) : undefined) ??
 		writeTargetReason(program, args, policy)
 	);
 }
