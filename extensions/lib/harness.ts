@@ -19,16 +19,19 @@ export interface HarnessOptions {
 }
 
 /**
- * nest's harness: this package, Pi's agent directory and Claude Code's config directory. Claude
- * Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells agents to write skills to
- * `~/.claude/skills`, so without the third entry nest could change the settings, skills and hooks
- * of the harness that watches it.
+ * nest's harness: this package, Pi's agent directory, Claude Code's config directory and
+ * `~/.agents`. Claude Code supervises nest's sessions, and pecker-grove's CLAUDE.md tells agents to
+ * write skills to `~/.claude/skills`, so without the third entry nest could change the settings,
+ * skills and hooks of the harness that watches it. `~/.agents/skills` is the same for the skills
+ * Pi (1.5.0, package-manager.js) and Cursor load into every session; `link.sh --cursor` installs
+ * nest's skills there.
  */
 export function harnessDirs({ nestDir, home = homedir(), env = process.env, canonical = canonicalPath }: HarnessOptions): string[] {
 	return [
 		canonical(nestDir),
 		canonical(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent")),
 		canonical(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude")),
+		canonical(join(home, ".agents")),
 	];
 }
 

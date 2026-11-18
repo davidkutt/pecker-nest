@@ -6,8 +6,9 @@
  *   git clean -f, gh commands that merge, approve, close or comment, curl … | sh, and writes to
  *   .env*, .git/, .pi/, keys and other credential files (see lib/safety-rules.ts).
  * - edit/write: the same protected paths, plus the harness itself: this package, Pi's agent
- *   directory and Claude Code's config directory (${CLAUDE_CONFIG_DIR:-~/.claude}). The agent
- *   never edits its own gates, settings or protection rules, nor the supervisor's.
+ *   directory, Claude Code's config directory (${CLAUDE_CONFIG_DIR:-~/.claude}) and ~/.agents,
+ *   whose skills Pi loads. The agent never edits its own gates, settings, skills or protection
+ *   rules, nor the supervisor's.
  * - /plan runs: edit/write may only touch PLAN.md.
  * - `.pi/protect.json` adds repository rules (lib/protect-config.ts): paths the agent must not
  *   write, paths it must not read either, and commands it must not run. Lines that mention a
@@ -36,8 +37,8 @@ import {
 } from "./lib/safety-rules.ts";
 
 /**
- * Directories the agent must never write: this package, Pi's agent directory and Claude Code's
- * config directory (lib/harness.ts says why).
+ * Directories the agent must never write: this package, Pi's agent directory, Claude Code's config
+ * directory and ~/.agents (lib/harness.ts says why).
  */
 const HARNESS_DIRS = harnessDirs({ nestDir: resolve(dirname(fileURLToPath(import.meta.url)), "..") });
 

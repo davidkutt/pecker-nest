@@ -49,8 +49,8 @@ required; if it is not available, say so in the pull request).
 ## Repository rules
 
 - **nest is never built with nest.** Changes to this repository are made in Claude Code or Cursor. In Pi,
-  the safety gate counts this checkout, Pi's agent directory and Claude Code's config directory as the
-  harness and refuses writes to them.
+  the safety gate counts this checkout, Pi's agent directory, Claude Code's config directory and
+  `~/.agents` as the harness and refuses writes to them.
 - **One rule set.** Safety, protection, gate and weakened-test decisions live once, as pure functions in
   `extensions/lib/` with unit tests in `test/`. Pi's extensions and the Cursor adapter only translate
   payloads and results. Never weaken the safety gate, the harness protection or the weakened-test check

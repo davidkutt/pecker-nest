@@ -238,6 +238,7 @@ describe("cursor adapter: writes and deletes", () => {
 			join(ctx.home, ".config/pecker-nest/cursor-trusted"),
 			join(ctx.home, ".local/state/pecker-nest/cursor/turns/conv-1.json"),
 			join(ctx.home, ".claude/skills/x/SKILL.md"),
+			join(ctx.home, ".agents/skills/x/SKILL.md"),
 		];
 		for (const target of targets) {
 			const { answer, entries } = preToolUse(tool(root, "Write", { file_path: target, content: "x" }), ctx);

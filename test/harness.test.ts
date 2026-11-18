@@ -16,9 +16,12 @@ import { bashCommandReason, type PathPolicy, protectedPathReason, protectedReadR
 const same = (path: string) => path;
 
 describe("harnessDirs", () => {
-	it("is nest's three directories, as safety-gate.ts had them", () => {
-		assert.deepEqual(harnessDirs({ nestDir: "/n", home: "/h", env: {}, canonical: same }), ["/n", "/h/.pi/agent", "/h/.claude"]);
-		assert.deepEqual(harnessDirs({ nestDir: "/n", home: "/h", env: { PI_CODING_AGENT_DIR: "/pi", CLAUDE_CONFIG_DIR: "/cc" }, canonical: same }), ["/n", "/pi", "/cc"]);
+	it("is nest's three directories, as safety-gate.ts had them, and ~/.agents, whose skills Pi and Cursor load", () => {
+		assert.deepEqual(harnessDirs({ nestDir: "/n", home: "/h", env: {}, canonical: same }), ["/n", "/h/.pi/agent", "/h/.claude", "/h/.agents"]);
+		assert.deepEqual(harnessDirs({ nestDir: "/n", home: "/h", env: { PI_CODING_AGENT_DIR: "/pi", CLAUDE_CONFIG_DIR: "/cc" }, canonical: same }), ["/n", "/pi", "/cc", "/h/.agents"]);
+		const pi: PathPolicy = { cwd: "/r", write: [], read: [], harnessDirs: harnessDirs({ nestDir: "/n", home: "/h", env: {}, canonical: same }) };
+		assert.equal(protectedPathReason("/h/.agents/skills/x/SKILL.md", pi), "/h/.agents/skills/x/SKILL.md is part of the agent harness (/h/.agents); change the harness outside pi");
+		assert.equal(protectedPathReason("/r/.agents/skills/x/SKILL.md", pi), undefined, "a repository's own skills are not the harness");
 	});
 
 	it("adds Cursor's user directory and the adapter's config and state for Cursor, minus the worktrees", () => {
@@ -26,6 +29,7 @@ describe("harnessDirs", () => {
 			"/n",
 			"/h/.pi/agent",
 			"/h/.claude",
+			"/h/.agents",
 			"/h/.cursor",
 			"/h/.config/pecker-nest",
 			"/h/.local/state/pecker-nest",
