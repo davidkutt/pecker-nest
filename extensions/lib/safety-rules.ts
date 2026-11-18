@@ -54,6 +54,12 @@ export interface PathPolicy {
 	harnessExceptions?: readonly string[];
 	/** The agent's name in harness reasons ("change the harness outside pi"); defaults to pi. */
 	agent?: string;
+	/**
+	 * Compare paths, path names and globs without regard to case, as APFS does on macOS: there
+	 * `.Cursor/hooks.json` is `.cursor/hooks.json` and `.ENV` is `.env`. Set on macOS by Pi's
+	 * safety-gate.ts and the Cursor adapter; off, every comparison is case-sensitive as before.
+	 */
+	caseInsensitive?: boolean;
 	/** Resolves symlinks; defaults to the path itself. */
 	canonical?: (absolute: string) => string;
 }
@@ -68,11 +74,30 @@ function absolutePath(path: string, cwd: string): string {
 	return isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
 }
 
+/** `value` as compared under the policy: lower case when it ignores case. */
+function folded(value: string, caseInsensitive: boolean | undefined): string {
+	return caseInsensitive ? value.toLowerCase() : value;
+}
+
+const outside = (rel: string) => rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+
+/**
+ * `target` relative to `base`, like path.relative. Ignoring case, a target that lies below `base`
+ * in another spelling counts as inside, and the result keeps the target's own spelling.
+ */
+function relativeTo(base: string, target: string, caseInsensitive: boolean | undefined): string {
+	const rel = relative(base, target);
+	if (!caseInsensitive || !outside(rel)) return rel;
+	const loose = relative(base.toLowerCase(), target.toLowerCase());
+	if (outside(loose)) return rel;
+	return loose === "" ? "" : target.split(sep).slice(-loose.split(sep).length).join(sep);
+}
+
 /** Repository-relative `/` path, or undefined when `path` lies outside the repository. */
 function repoPath(path: string, policy: PathPolicy): string | undefined {
 	const canonical = policy.canonical ?? ((value: string) => value);
-	const rel = relative(canonical(policy.cwd), canonical(absolutePath(path, policy.cwd)));
-	if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+	const rel = relativeTo(canonical(policy.cwd), canonical(absolutePath(path, policy.cwd)), policy.caseInsensitive);
+	if (rel === "" || outside(rel)) return undefined;
 	return rel.split(sep).join("/");
 }
 
@@ -80,18 +105,19 @@ function harnessReason(path: string, policy: PathPolicy): string | undefined {
 	const canonical = policy.canonical ?? ((value: string) => value);
 	const target = canonical(absolutePath(path, policy.cwd));
 	const agent = policy.agent ?? "pi";
-	const inside = (candidate: string) => target === candidate || target.startsWith(candidate + sep);
+	const fold = (value: string) => folded(value, policy.caseInsensitive);
+	const inside = (candidate: string) => fold(target) === fold(candidate) || fold(target).startsWith(fold(candidate) + sep);
 	const dir = policy.harnessExceptions?.some(inside) ? undefined : policy.harnessDirs.find(inside);
 	if (dir) return `${path} is part of the agent harness (${dir}); change the harness outside ${agent}`;
 	const slashed = target.split(sep).join("/").replace(/^\/+/, "");
-	const file = policy.harnessFiles?.find((glob) => globToRegExp(glob).test(slashed));
+	const file = policy.harnessFiles?.find((glob) => globToRegExp(glob, policy.caseInsensitive).test(slashed));
 	return file ? `${path} configures the agent harness (${file}); change it outside ${agent}` : undefined;
 }
 
 /** Reason why `path` must not be read under the repository's rules, or undefined. */
 export function protectedReadReason(path: string, policy: PathPolicy): string | undefined {
 	const rel = repoPath(unquote(path), policy);
-	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.read);
+	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.read, policy.caseInsensitive);
 	return glob ? `${rel} is protected by ${PROTECT_CONFIG_PATH} (read: ${glob})` : undefined;
 }
 
@@ -117,15 +143,15 @@ export function searchReadReason(root: string | undefined, glob: string | undefi
 	const canonical = policy.canonical ?? ((value: string) => value);
 	const base = canonical(policy.cwd);
 	const target = canonical(absolutePath(start, policy.cwd));
-	const rel = relative(base, target);
+	const rel = relativeTo(base, target, policy.caseInsensitive);
 	let prefix = "";
-	if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-		const up = relative(target, base);
-		if (up === ".." || up.startsWith(`..${sep}`) || isAbsolute(up)) return undefined;
+	if (outside(rel)) {
+		if (outside(relativeTo(target, base, policy.caseInsensitive))) return undefined;
 	} else prefix = rel.split(sep).join("/");
-	const included = includeMatcher(glob);
+	const included = includeMatcher(glob, policy.caseInsensitive);
+	const fold = (value: string) => folded(value, policy.caseInsensitive);
 	const hit = files.find((file) => {
-		if (prefix && file !== prefix && !file.startsWith(`${prefix}/`)) return false;
+		if (prefix && fold(file) !== fold(prefix) && !fold(file).startsWith(`${fold(prefix)}/`)) return false;
 		return included(prefix ? file.slice(prefix.length + 1) : file, file);
 	});
 	if (!hit) return undefined;
@@ -134,10 +160,10 @@ export function searchReadReason(root: string | undefined, glob: string | undefi
 }
 
 /** ripgrep's include glob as a test on a file's path below the search root and in the repository. */
-function includeMatcher(glob: string | undefined): (belowRoot: string, inRepo: string) => boolean {
+function includeMatcher(glob: string | undefined, caseInsensitive?: boolean): (belowRoot: string, inRepo: string) => boolean {
 	const cleaned = glob?.trim();
 	if (!cleaned || /[{}[\]!]/.test(cleaned)) return () => true;
-	const pattern = globToRegExp(cleaned.replace(/^\//, ""));
+	const pattern = globToRegExp(cleaned.replace(/^\//, ""), caseInsensitive);
 	if (!cleaned.includes("/")) return (belowRoot) => pattern.test(basename(belowRoot));
 	return (belowRoot, inRepo) => pattern.test(belowRoot) || pattern.test(inRepo);
 }
@@ -148,7 +174,7 @@ function policyWriteReason(path: string, policy: PathPolicy): string | undefined
 	const read = protectedReadReason(path, policy);
 	if (read) return read;
 	const rel = repoPath(path, policy);
-	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.write);
+	const glob = rel === undefined ? undefined : matchingGlob(rel, policy.write, policy.caseInsensitive);
 	return glob ? `${rel} is protected by ${PROTECT_CONFIG_PATH} (write: ${glob})` : undefined;
 }
 
@@ -159,23 +185,24 @@ function policyWriteReason(path: string, policy: PathPolicy): string | undefined
 export function protectedPathReason(path: string, policy?: PathPolicy): string | undefined {
 	const cleaned = unquote(path);
 	if (!cleaned) return undefined;
-	return builtInPathReason(cleaned) ?? (policy ? policyWriteReason(cleaned, policy) : undefined);
+	return builtInPathReason(cleaned, policy?.caseInsensitive) ?? (policy ? policyWriteReason(cleaned, policy) : undefined);
 }
 
-function builtInPathReason(cleaned: string): string | undefined {
+function builtInPathReason(cleaned: string, caseInsensitive?: boolean): string | undefined {
+	const fold = (value: string) => folded(value, caseInsensitive);
 	const segments = cleaned.split(/[\\/]+/).filter(Boolean);
 	const name = basename(cleaned);
-	if (/^\.env(\..+)?$/.test(name) && !TEMPLATE_ENV_FILES.has(name)) {
+	if (/^\.env(\..+)?$/.test(fold(name)) && !TEMPLATE_ENV_FILES.has(fold(name))) {
 		return `${cleaned} is an environment file and may hold secrets`;
 	}
-	const secretDir = segments.slice(0, -1).find((segment) => SECRET_DIRS.has(segment));
-	if (secretDir || SECRET_DIRS.has(name)) {
+	const secretDir = segments.slice(0, -1).find((segment) => SECRET_DIRS.has(fold(segment)));
+	if (secretDir || SECRET_DIRS.has(fold(name))) {
 		return `${cleaned} is inside ${secretDir ?? name}/, which is protected`;
 	}
-	if (SECRET_FILE_NAMES.has(name) || SECRET_EXTENSIONS.test(name) || SECRET_NAMES.test(name)) {
+	if (SECRET_FILE_NAMES.has(fold(name)) || SECRET_EXTENSIONS.test(name) || SECRET_NAMES.test(name)) {
 		return `${cleaned} looks like a credential or secret file`;
 	}
-	if (segments.includes(HARNESS_DIR)) {
+	if (segments.some((segment) => fold(segment) === HARNESS_DIR)) {
 		return `${cleaned} is inside ${HARNESS_DIR}/, the harness configuration (gate, protection rules, settings); the user changes it`;
 	}
 	return undefined;
@@ -226,8 +253,11 @@ export function splitCommands(command: string): string[][] {
 		.filter((words) => words.length > 0);
 }
 
-/** Drop leading `VAR=value` assignments and wrappers such as sudo, env or xargs. */
-function stripWrappers(words: string[]): string[] {
+/**
+ * Drop leading `VAR=value` assignments and wrappers such as sudo, env or xargs. Ignoring case, `ENV`
+ * is a wrapper too: on macOS's file system the shell finds `/usr/bin/env` under that name.
+ */
+function stripWrappers(words: string[], caseInsensitive?: boolean): string[] {
 	let index = 0;
 	while (index < words.length) {
 		const word = words[index];
@@ -235,7 +265,7 @@ function stripWrappers(words: string[]): string[] {
 			index++;
 			continue;
 		}
-		if (PASS_THROUGH.has(basename(word))) {
+		if (PASS_THROUGH.has(folded(basename(word), caseInsensitive))) {
 			index++;
 			// Skip the wrapper's own options, e.g. `sudo -u root`, `timeout 10`, `xargs -0`.
 			while (index < words.length && (words[index].startsWith("-") || /^\d+[smhd]?$/.test(words[index]))) {
@@ -326,20 +356,21 @@ function redirectReason(command: string, policy?: PathPolicy): string | undefine
 function readReason(command: string, policy: PathPolicy): string | undefined {
 	if (!policy.read.length) return undefined;
 	const files = policy.readFiles ?? [];
-	const names = new Set(files.map((file) => basename(file)));
+	const fold = (value: string) => folded(value, policy.caseInsensitive);
+	const names = new Set(files.map((file) => fold(basename(file))));
 	for (const word of splitCommands(command).flat()) {
 		for (const candidate of [word, word.slice(word.indexOf("=") + 1), word.replace(/^[@<]+/, "")]) {
 			if (!candidate || !/[./*?]/.test(candidate)) continue;
 			if (hasGlob(candidate)) {
 				const rel = repoPath(candidate, policy);
-				const pattern = rel === undefined ? undefined : globToRegExp(rel);
+				const pattern = rel === undefined ? undefined : globToRegExp(rel, policy.caseInsensitive);
 				const hit = pattern && files.find((file) => pattern.test(file));
 				if (hit) return `the command would read ${hit}, which is protected by ${PROTECT_CONFIG_PATH}`;
 				continue;
 			}
 			const reason = protectedReadReason(candidate, policy);
 			if (reason) return `the command would read ${reason}`;
-			if (!candidate.includes("/") && names.has(candidate)) {
+			if (!candidate.includes("/") && names.has(fold(candidate))) {
 				return `the command names ${candidate}, a file protected by ${PROTECT_CONFIG_PATH}`;
 			}
 		}
@@ -378,9 +409,10 @@ export function bashCommandReason(command: string, policy?: PathPolicy): string 
 }
 
 function simpleCommandReason(words: string[], policy?: PathPolicy): string | undefined {
-	const [first, ...args] = stripWrappers(words);
+	const [first, ...args] = stripWrappers(words, policy?.caseInsensitive);
 	if (!first) return undefined;
-	const program = basename(first);
+	// Ignoring case, `RM` and `GIT` are rm and git: the shell finds them under any spelling.
+	const program = folded(basename(first), policy?.caseInsensitive);
 	// `bash -c "…"` and `eval …` run their arguments as a command.
 	const commandAt = new RegExp(`^${SHELLS}$`).test(program) ? args.indexOf("-c") : -1;
 	if (commandAt >= 0) return simpleCommandReason(args.slice(commandAt + 1), policy);

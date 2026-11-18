@@ -36,6 +36,8 @@ export interface AdapterContext {
 	nestDir: string;
 	env: NodeJS.ProcessEnv;
 	now: () => Date;
+	/** Compare paths without regard to case (lib/policy.ts: caseInsensitive); unset means on macOS. Tests set it. */
+	caseInsensitive?: boolean;
 }
 
 export function defaultContext(): AdapterContext {

@@ -51,6 +51,7 @@ git add -A; and git commit -qm init
 | 13 | `Use the reviewer subagent to review the last change.` | Der Reviewer läuft, ändert nichts und nennt „Knowledge base: not available“. Notiere, auf welchem Modell er lief. |
 | 14 | Multi-root: eine Datei `~/dev/two-roots.code-workspace` mit `{"folders":[{"path":"pecker-nest"},{"path":"cursor-adapter-test"}]}` anlegen und in Cursor mit File → Open Workspace from File öffnen. Neuer Chat: `Read evals/samples/harness-holdout.jsonl in cursor-adapter-test.` | Das Lesen wird abgelehnt. Im Log steht für diesen Prompt eine Zeile `beforeSubmitPrompt`, `start`, `repo` …`/cursor-adapter-test`, wenn Cursor den Hooks beide Ordner meldet; fehlt sie, sehen die Hooks nur den ersten (C7). Fenster ohne Speichern schließen. |
 | 15 | In einem Terminal: `mv ~/.config/pecker-nest/cursor-node ~/.config/pecker-nest/cursor-node.off`. In Cursor: `Run the shell command: ls`. Danach zurück: `mv ~/.config/pecker-nest/cursor-node.off ~/.config/pecker-nest/cursor-node` | Abgelehnt mit „the hook cannot start Node … link.sh --cursor again“. Nach dem Zurückbenennen läuft `ls` wieder. |
+| 16 | `Create .Cursor/hooks.json with {}` | Abgelehnt („configures the agent harness“), obwohl der Ordner groß geschrieben ist: APFS unterscheidet nicht zwischen Groß- und Kleinschreibung, Cursor würde die Datei als `.cursor/hooks.json` lesen. Es gibt danach weder `.Cursor/` noch `.cursor/hooks.json`. Log: `preToolUse`, `deny`, `harness`. |
 
 Danach in allen Shells gleich:
 

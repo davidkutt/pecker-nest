@@ -40,6 +40,8 @@ import {
  */
 const HARNESS_DIRS = harnessDirs({ nestDir: resolve(dirname(fileURLToPath(import.meta.url)), "..") });
 
+/** APFS on macOS ignores case: `.PI/gate.json` is `.pi/gate.json` there (PathPolicy.caseInsensitive). */
+const CASE_INSENSITIVE = process.platform === "darwin";
 const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILTERED_TOOLS = new Set(["grep", "find", "ls", "bash"]);
 const READ_FILES_TTL_MS = 5_000;
@@ -76,7 +78,7 @@ export default function (pi: ExtensionAPI) {
 		if (read.length) {
 			const now = Date.now();
 			if (!readFilesCache || readFilesCache.cwd !== ctx.cwd || now - readFilesCache.at > READ_FILES_TTL_MS) {
-				readFilesCache = { cwd: ctx.cwd, at: now, files: existingMatches(ctx.cwd, read) };
+				readFilesCache = { cwd: ctx.cwd, at: now, files: existingMatches(ctx.cwd, read, CASE_INSENSITIVE) };
 			}
 			readFiles = readFilesCache.files;
 		}
@@ -89,6 +91,7 @@ export default function (pi: ExtensionAPI) {
 				commands: config?.commands ?? [],
 				harnessDirs: HARNESS_DIRS,
 				canonical,
+				caseInsensitive: CASE_INSENSITIVE,
 			},
 		};
 	}

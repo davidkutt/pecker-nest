@@ -87,8 +87,11 @@ export function hasGlob(text: string): boolean {
 	return GLOB_CHARS.test(text);
 }
 
-/** A repository-relative glob as a regular expression over `/`-separated paths. */
-export function globToRegExp(glob: string): RegExp {
+/**
+ * A repository-relative glob as a regular expression over `/`-separated paths; with
+ * `caseInsensitive` it ignores case, as macOS's file system does (PathPolicy.caseInsensitive).
+ */
+export function globToRegExp(glob: string, caseInsensitive = false): RegExp {
 	const normalized = normalizeGlob(glob);
 	let source = "";
 	for (let index = 0; index < normalized.length; index++) {
@@ -102,13 +105,13 @@ export function globToRegExp(glob: string): RegExp {
 		else source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
 	}
 	// A plain path also covers everything below it.
-	return new RegExp(hasGlob(normalized) ? `^${source}$` : `^${source}(?:/.*)?$`);
+	return new RegExp(hasGlob(normalized) ? `^${source}$` : `^${source}(?:/.*)?$`, caseInsensitive ? "i" : "");
 }
 
 /** The first glob that matches the repository-relative `path`, or undefined. */
-export function matchingGlob(path: string, globs: readonly string[]): string | undefined {
+export function matchingGlob(path: string, globs: readonly string[], caseInsensitive = false): string | undefined {
 	const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
-	return globs.find((glob) => globToRegExp(glob).test(normalized));
+	return globs.find((glob) => globToRegExp(glob, caseInsensitive).test(normalized));
 }
 
 /** The directory part of a glob before its first wildcard, e.g. `evals/samples` for `evals/samples/test*.jsonl`. */
@@ -123,7 +126,7 @@ const SKIP_DIRS = new Set([".git", "node_modules"]);
 const MAX_FILES = 20_000;
 
 /** Existing files under `cwd` that match one of `globs`, repository-relative. Bounded walk. */
-export function existingMatches(cwd: string, globs: readonly string[]): string[] {
+export function existingMatches(cwd: string, globs: readonly string[], caseInsensitive = false): string[] {
 	const found = new Set<string>();
 	let visited = 0;
 	const walk = (relDir: string) => {
@@ -139,7 +142,7 @@ export function existingMatches(cwd: string, globs: readonly string[]): string[]
 			const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
 			if (entry.isDirectory()) {
 				if (!SKIP_DIRS.has(entry.name)) walk(rel);
-			} else if (matchingGlob(rel, globs)) found.add(rel);
+			} else if (matchingGlob(rel, globs, caseInsensitive)) found.add(rel);
 		}
 	};
 	for (const prefix of new Set(globs.map(staticPrefix))) {

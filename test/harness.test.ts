@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { describeRed, handBackMessage, handBackReason, repairMessage, unchangedFindingsMessage } from "../extensions/lib/gate-message.ts";
 import { CURSOR_HARNESS_FILES, cursorHarnessDirs, cursorHarnessExceptions, harnessDirs, harnessScriptReason } from "../extensions/lib/harness.ts";
-import { type PathPolicy, protectedPathReason, searchReadReason } from "../extensions/lib/safety-rules.ts";
+import { bashCommandReason, type PathPolicy, protectedPathReason, protectedReadReason, searchReadReason } from "../extensions/lib/safety-rules.ts";
 
 const same = (path: string) => path;
 
@@ -58,8 +58,68 @@ describe("PathPolicy harness files, exceptions and agent name", () => {
 	});
 });
 
+describe("PathPolicy.caseInsensitive (APFS on macOS)", () => {
+	const strict: PathPolicy = {
+		cwd: "/r",
+		write: ["docs/milestones/**"],
+		read: ["evals/samples/*holdout*.jsonl"],
+		readFiles: ["evals/samples/harness-holdout.jsonl"],
+		harnessDirs: ["/n", "/h/.cursor"],
+		harnessFiles: CURSOR_HARNESS_FILES,
+		harnessExceptions: ["/h/.cursor/worktrees"],
+		agent: "Cursor",
+	};
+	const loose: PathPolicy = { ...strict, caseInsensitive: true };
+	const cases: [string, RegExp][] = [
+		["/r/.Cursor/hooks.json", /configures the agent harness \(\*\*\/\.cursor\/hooks\.json\)/],
+		["/r/.CURSOR/HOOKS/run.sh", /configures the agent harness/],
+		["/r/.CursorIgnore", /configures the agent harness/],
+		["/h/.CURSOR/hooks.json", /is part of the agent harness \(\/h\/\.cursor\)/],
+		["/N/x", /is part of the agent harness \(\/n\)/],
+		["/h/.CURSOR/WORKTREES/r/b/.Cursor/hooks.json", /configures the agent harness/],
+		["/r/.PI/gate.json", /is inside \.pi\//],
+		["/r/.ENV", /is an environment file/],
+		["/r/app/.Env.Local", /is an environment file/],
+		["/r/.GIT/config", /is inside \.GIT\/, which is protected/],
+		["/r/ID_RSA", /looks like a credential/],
+		["/r/DOCS/Milestones/m1.md", /DOCS\/Milestones\/m1\.md is protected by \.pi\/protect\.json \(write: docs\/milestones\/\*\*\)/],
+		["/R/EVALS/samples/HARNESS-holdout.jsonl", /EVALS\/samples\/HARNESS-holdout\.jsonl is protected by \.pi\/protect\.json \(read: /],
+	];
+
+	it("denies every spelling of a protected path", () => {
+		for (const [path, reason] of cases) assert.match(protectedPathReason(path, loose) ?? "", reason, path);
+		assert.match(protectedReadReason("/r/Evals/Samples/Harness-Holdout.jsonl", loose) ?? "", /protected by \.pi\/protect\.json \(read: /);
+	});
+
+	it("keeps exceptions and templates in any spelling", () => {
+		assert.equal(protectedPathReason("/h/.CURSOR/Worktrees/r/b/src/x.ts", loose), undefined);
+		assert.equal(protectedPathReason("/r/.ENV.Example", loose), undefined);
+		assert.equal(protectedPathReason("/r/src/Cursor.ts", loose), undefined);
+	});
+
+	it("leaves case-sensitive comparison as it was when the field is unset", () => {
+		for (const [path] of cases) assert.equal(protectedPathReason(path, strict), undefined, path);
+	});
+
+	it("names the program in any spelling and ignores case in searches", () => {
+		for (const command of ["GIT push", "Rm -rf src", "ENV git push", "SUDO RM -rf /", "echo x > .ENV", "cp x .Cursor/hooks.json", "cat EVALS/samples/Harness-Holdout.jsonl"]) {
+			assert.ok(bashCommandReason(command, loose), command);
+		}
+		assert.equal(bashCommandReason("GIT push", strict), undefined, "on a case-sensitive file system GIT is not git");
+		assert.match(searchReadReason("/R/EVALS", undefined, loose) ?? "", /can reach evals\/samples\/harness-holdout\.jsonl/);
+		assert.match(searchReadReason("/r", "*HOLDOUT*", loose) ?? "", /harness-holdout/);
+	});
+});
+
 describe("harnessScriptReason", () => {
 	const options = { nestDir: "/h/dev/pecker-nest", cwd: "/r", home: "/h", canonical: same };
+
+	it("ignores case when asked, as on macOS", () => {
+		for (const command of ["~/DEV/PECKER-NEST/scripts/LINK.sh --cursor-capture", "/H/dev/pecker-nest/Scripts/link.sh", "scripts/Cursor-Trust.SH add ."]) {
+			assert.match(harnessScriptReason(command, { ...options, caseInsensitive: true }) ?? "", /installs or configures the agent harness/, command);
+			assert.equal(harnessScriptReason(command, options), undefined, command);
+		}
+	});
 
 	it("blocks link.sh of this checkout and cursor-trust.sh anywhere", () => {
 		for (const command of [

@@ -211,6 +211,30 @@ describe("cursor adapter: writes and deletes", () => {
 		}
 	});
 
+	it("ignores case as APFS does on macOS: every spelling of a protected path is denied", () => {
+		const root = repo(UNDERTEXT_LIKE);
+		const ctx = { ...context(), caseInsensitive: true };
+		const cases: [string, string][] = [
+			[join(root, ".Cursor/hooks.json"), "harness"],
+			[join(ctx.home, ".CURSOR/hooks.json"), "harness"],
+			[join(root, ".PI/gate.json"), "pi-dir"],
+			[join(root, ".ENV"), "env-file"],
+			[join(NEST.toUpperCase(), "x"), "harness"],
+			[join(root, "DOCS/Milestones/m1.md"), "protect-write"],
+		];
+		for (const [target, rule] of cases) {
+			const { answer, entries } = preToolUse(tool(root, "Write", { file_path: target, content: "{}" }), ctx);
+			denied(answer, /./);
+			assert.equal(entries[0].rule, rule, target);
+		}
+		denied(preToolUse(tool(root, "Read", { file_path: join(root, "EVALS/samples/Harness-HOLDOUT.jsonl") }), ctx).answer, /protected by \.pi\/protect\.json \(read: /);
+		for (const command of ["GIT push", "echo '{}' > .Cursor/hooks.json", "cat Evals/Samples/HARNESS-holdout.jsonl", `${NEST.toUpperCase()}/scripts/link.sh --cursor-capture`]) {
+			denied(beforeShellExecution(shell(root, command), ctx).answer, /./);
+		}
+		const sensitive = { ...ctx, caseInsensitive: false };
+		assert.deepEqual(preToolUse(tool(root, "Write", { file_path: join(root, ".Cursor/hooks.json"), content: "{}" }), sensitive).answer, { permission: "allow" }, "a case-sensitive file system keeps .Cursor apart from .cursor");
+	});
+
 	it("lets the agent work in a Cursor worktree under ~/.cursor/worktrees, but not on its hook files", () => {
 		const ctx = context();
 		const worktree = join(ctx.home, ".cursor/worktrees/demo/feat-x");

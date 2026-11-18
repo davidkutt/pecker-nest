@@ -23,6 +23,11 @@ export function repositoryFor(path: string, roots: readonly string[]): string | 
 
 export type PolicyResult = { policy: PathPolicy; repo?: string } | { error: string; repo: string };
 
+/** Whether paths are compared without regard to case: on macOS (APFS), unless the context says otherwise. */
+export function caseInsensitive(context: AdapterContext): boolean {
+	return context.caseInsensitive ?? process.platform === "darwin";
+}
+
 /**
  * The policy for `repo`, or the error of an invalid `.pi/protect.json` there. Without a repository
  * only the built-in rules and the harness apply.
@@ -34,6 +39,7 @@ export function policyFor(repo: string | undefined, context: AdapterContext): Po
 		harnessFiles: CURSOR_HARNESS_FILES,
 		agent: "Cursor",
 		canonical: canonicalPath,
+		caseInsensitive: caseInsensitive(context),
 	};
 	if (!repo) return { policy: { cwd: context.home, write: [], read: [], ...harness } };
 	let config;
@@ -49,7 +55,7 @@ export function policyFor(repo: string | undefined, context: AdapterContext): Po
 			cwd: repo,
 			write: config?.write ?? [],
 			read,
-			readFiles: read.length ? existingMatches(repo, read) : [],
+			readFiles: read.length ? existingMatches(repo, read, harness.caseInsensitive) : [],
 			commands: config?.commands ?? [],
 			...harness,
 		},

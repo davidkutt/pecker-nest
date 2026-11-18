@@ -81,17 +81,23 @@ const HARNESS_SCRIPTS = ["scripts/link.sh", "scripts/cursor-trust.sh"];
  * Reason why a shell command must not run because it calls one of the scripts that install or
  * configure the harness (`scripts/link.sh --cursor-capture` would swap the gate for the capture
  * hook, `scripts/cursor-trust.sh add` would let a repository's gate command run), or undefined.
- * Like the other command rules a tripwire, not a sandbox.
+ * With `caseInsensitive` (macOS, as PathPolicy.caseInsensitive) `~/DEV/PECKER-NEST/scripts/LINK.sh`
+ * counts too. Like the other command rules a tripwire, not a sandbox.
  */
-export function harnessScriptReason(command: string, options: { nestDir: string; cwd: string; home?: string; canonical?: (path: string) => string }): string | undefined {
+export function harnessScriptReason(
+	command: string,
+	options: { nestDir: string; cwd: string; home?: string; canonical?: (path: string) => string; caseInsensitive?: boolean },
+): string | undefined {
 	const home = options.home ?? homedir();
 	const canonical = options.canonical ?? canonicalPath;
-	const scripts = new Set(HARNESS_SCRIPTS.map((script) => canonical(join(options.nestDir, script))));
+	const fold = (value: string) => (options.caseInsensitive ? value.toLowerCase() : value);
+	const scripts = new Set(HARNESS_SCRIPTS.map((script) => fold(canonical(join(options.nestDir, script)))));
+	const name = new RegExp("(?:^|/)(?:link|cursor-trust)\\.sh$", options.caseInsensitive ? "i" : "");
 	for (const word of splitCommands(command).flat()) {
-		if (!/(?:^|\/)(?:link|cursor-trust)\.sh$/.test(word)) continue;
+		if (!name.test(word)) continue;
 		const expanded = word.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
 		const target = canonical(isAbsolute(expanded) ? resolve(expanded) : resolve(options.cwd, expanded));
-		if (scripts.has(target) || basename(word) === "cursor-trust.sh") return `${word} installs or configures the agent harness; the user runs it`;
+		if (scripts.has(fold(target)) || fold(basename(word)) === "cursor-trust.sh") return `${word} installs or configures the agent harness; the user runs it`;
 	}
 	return undefined;
 }
