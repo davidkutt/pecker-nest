@@ -28,7 +28,8 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── provider-log.ts       records the upstream OpenRouter provider of every request in the session
 │   │                         file (from the stream, no extra request), for the session report
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
-│   └── lib/                  pure logic, unit-tested
+│   └── lib/                  pure logic, unit-tested; harness.ts, safety-rules.ts and gate-message.ts also
+│                             serve the Cursor adapter
 ├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual);
 │                             nest-supervise, nest-handoff for the supervising agent: Pi's package leaves
 │                             them out ("!skills/nest-*"), scripts/link.sh links them per tool
@@ -44,19 +45,27 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   └── prompts/              review-chain and its four steps
 ├── claude/skills/            symlinks to skills/nest-*, so links made before the move keep working;
 │                             goes with the Claude Code exit (06.12.2026)
-├── cursor/                   Cursor: node.sh starts hook scripts with the Node recorded at link time;
-│                             capture/ is the temporary capture hook of docs/research/cursor-hooks.md
+├── cursor/                   Cursor adapter: nest's safety rules and quality gate as Cursor hooks
+│   ├── hooks.json            user-level hooks, installed as ~/.cursor/hooks.json by link.sh --cursor
+│   ├── hooks/                one thin entry script per hook event
+│   ├── lib/                  Cursor payload -> extensions/lib/ -> Cursor answer; trust list, log, turn state
+│   ├── agents/reviewer.md    read-only reviewer subagent (model: inherit)
+│   ├── user-rule.md          the text for Cursor's User Rules
+│   ├── node.sh               starts hook scripts with the Node recorded at link time
+│   └── capture/              the capture hook of docs/research/cursor-hooks.md
 ├── field-notes/              local session notes (git-ignored except README and TEMPLATE)
 ├── templates/                AGENTS.*.md, gate.*.json; undertext/ (gate.json, protect.json)
 ├── docker/                   Dockerfile.pi, pi-run.sh (container key from the Keychain, refuses a stale
 │                             image), task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory; --claude, --cursor, --pi also link the
-│   │                         supervision skills into that tool's skills directory;
-│   │                         --cursor-capture / --cursor-capture-off install and remove Cursor's capture hook
+│   │                         supervision skills into that tool's skills directory; --cursor also installs
+│   │                         the Cursor adapter; --cursor-capture / --cursor-capture-off install and
+│   │                         remove Cursor's capture hook
+│   ├── cursor-trust.sh       add | remove | list: the repositories where the gate may run in Cursor
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
-│   │                         --docker adds the daemon and image checks for headless runs; the knowledge
-│   │                         base only ever warns
+│   │                         --docker adds the daemon and image checks for headless runs, --cursor the
+│   │                         Cursor adapter; the knowledge base only ever warns
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
@@ -107,7 +116,7 @@ fish:
 for d in ~/.cursor/skills/nest-* ~/.pi/agent/skills/nest-*; echo "$d -> "(readlink $d); end
 ```
 
-Cursor also loads `~/.claude/skills/`, so with `--claude` and `--cursor` both, Cursor sees the two skills twice until the Claude links are gone. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field notes included; the skills then hand David the note's text instead.
+Cursor also loads `~/.claude/skills/`, so with `--claude` and `--cursor` both, Cursor sees the two skills twice until the Claude links are gone. `--cursor` also installs the Cursor adapter (hooks, reviewer subagent, three skills in `~/.agents/skills/`); see [docs/SETUP.md](docs/SETUP.md), section 8. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field notes included; the skills then hand David the note's text instead.
 
 ## Checks
 

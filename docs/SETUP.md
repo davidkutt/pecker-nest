@@ -109,7 +109,7 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    ~/dev/pecker-nest/scripts/link.sh --claude
    ```
 
-   `--claude` verlinkt zusätzlich die Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/` (Runbook M7), `--cursor` nach `~/.cursor/skills/`, `--pi` nach `~/.pi/agent/skills/`; die Optionen lassen sich kombinieren. Ohne sie bleiben Claude Code, Cursor und Pis Skills unberührt. In einem Skill-Verzeichnis verschiebt das Skript nichts: Was dort kein Link in dieses Repo ist, meldet es als `foreign` und lässt es stehen.
+   `--claude` verlinkt zusätzlich die Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/` (Runbook M7), `--cursor` nach `~/.cursor/skills/` und installiert dazu den Cursor-Adapter (Abschnitt 8), `--pi` nach `~/.pi/agent/skills/`; die Optionen lassen sich kombinieren. Ohne sie bleiben Claude Code, Cursor und Pis Skills unberührt. In einem Skill-Verzeichnis verschiebt das Skript nichts: Was dort kein Link in dieses Repo ist, meldet es als `foreign` und lässt es stehen.
 
    Das Skript löscht nichts. Vorhandene Dateien benennt es in `<name>.bak.<zeitstempel>` um und zeigt jede Aktion an. `auth.json` und deine Sessions bleiben, wo sie sind. Hattest du in der alten `settings.json` eigene Packages oder Einstellungen, übernimm sie in `~/dev/pecker-nest/agent/settings.json`.
 
@@ -216,6 +216,80 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und 
 2. **Router verstehen:** Runbook, M5. `router/escalate` ist schon Standard.
 3. **Knowledge Base nutzen:** Runbook, M3. Der Server `kb` (pecker-grove) ist schon eingetragen; du startest grove und meldest dich einmal mit `pi mcp login kb` an.
 
+## 8. Cursor (optional, 15 Minuten)
+
+In Cursor gelten dieselben Sicherheitsregeln und dasselbe Quality Gate wie in nest, aus denselben Dateien je Repo (`.pi/protect.json`, `.pi/gate.json`). Dafür installiert `link.sh --cursor` Hooks auf Benutzerebene (`~/.cursor/hooks.json`), die die Logik aus `extensions/lib/` aufrufen. Grundlage sind die Befunde in [research/cursor-hooks.md](research/cursor-hooks.md) und der Capture vom 17.11.2026 (Cursor 3.30.14, Run Mode „Auto Review (with Sandbox)“).
+
+1. Installieren. Der Befehl ist in bash, zsh und fish derselbe:
+
+   ```bash
+   ~/dev/pecker-nest/scripts/link.sh --cursor
+   ```
+
+   Das Skript verlinkt wie immer Pis Dateien und die Supervision-Skills nach `~/.cursor/skills/`. Dazu schreibt es `~/.cursor/hooks.json` (eine vorhandene Datei wird zu `hooks.json.bak.<zeitstempel>`), verlinkt den Reviewer-Subagent nach `~/.cursor/agents/reviewer.md` und die Skills `grill-me`, `testing-ts` und `testing-py` nach `~/.agents/skills/`. `best-practices` bleibt draußen: Es braucht die Knowledge Base, und die gibt es in Cursor nicht.
+
+   Es merkt sich außerdem den aufgelösten Pfad deines Node in `~/.config/pecker-nest/cursor-node`. Cursor startet Hooks ohne deine Shell, und `command -v node` zeigt bei fnm in ein Verzeichnis, das mit der Shell verschwindet. Nach einem Node-Update oder `fnm uninstall` den Befehl wiederholen. Drei der Hooks blockieren bei einem Fehler (`failClosed`): Findet der Hook kein Node, lehnt Cursor jeden Befehl und jeden Dateizugriff ab und nennt den Befehl zum Reparieren.
+
+2. Cursor mit Cmd+Q beenden und neu starten. Unter Customize → Hooks stehen danach sechs Hooks.
+
+3. Dem Gate die Repos freigeben, in denen es laufen darf. Das Gate führt den Befehl aus `.pi/gate.json` mit deinen Rechten aus, deshalb läuft es nur in Repos auf dieser Liste. Die Sicherheitsregeln gelten überall. In bash, zsh und fish gleich:
+
+   ```bash
+   ~/dev/pecker-nest/scripts/cursor-trust.sh add ~/dev/undertext
+   ~/dev/pecker-nest/scripts/cursor-trust.sh add ~/dev/pecker-grove
+   ~/dev/pecker-nest/scripts/cursor-trust.sh list
+   ```
+
+   Ein Worktree, den Cursor mit `/worktree` aus einem freigegebenen Repo anlegt, gilt mit als freigegeben. Entfernen: `cursor-trust.sh remove <pfad>`.
+
+4. Die User Rule einfügen: Cursor → Settings → Rules → User Rules, Inhalt von `cursor/user-rule.md`. Zum Kopieren, in allen Shells gleich:
+
+   ```bash
+   pbcopy < ~/dev/pecker-nest/cursor/user-rule.md
+   ```
+
+5. Prüfen, in allen Shells gleich:
+
+   ```bash
+   ~/dev/pecker-nest/scripts/doctor.sh --cursor
+   ```
+
+   Die Zeilen mit `cursor:` sollten `PASS` zeigen. Ein `WARN` für `nest-supervise` und `nest-handoff` ist erwartet, solange die Links von `--claude` noch bestehen: Cursor liest `~/.claude/skills/` mit und zeigt die beiden Skills deshalb doppelt.
+
+Jede Entscheidung steht als eine Zeile in `~/.local/state/pecker-nest/cursor/log.jsonl`: Zeit, Hook, Repo, Entscheidung, Regel, beim Gate Ergebnis, Runde und Zahl der Befunde. Keine Befehle, Prompts, Dateiinhalte oder Ausgaben. Die letzten Zeilen, in allen Shells gleich: `tail -n 20 ~/.local/state/pecker-nest/cursor/log.jsonl`.
+
+### Was abgedeckt ist
+
+| Hook | Was er tut |
+| --- | --- |
+| `beforeShellExecution`, `preToolUse` auf `Shell` (failClosed) | Dieselben Regeln wie nests Safety-Gate, gegen die `.pi/protect.json` jedes Workspace-Ordners. Jeder `git push` wird abgelehnt, auch der des eigenen Branches (siehe Runbook, „Entschieden“). Dazu gesperrt: `scripts/link.sh` und `scripts/cursor-trust.sh`, weil sie die Hooks austauschen oder ein Repo freigeben würden. |
+| `preToolUse` auf `Write`, `Delete` und weitere Schreib-Tools (failClosed) | Nests geschützte Pfade (Secrets, `.env*`, `.git/`, `.pi/`, `write`-Globs), dazu die Harness: dieses Repo, `~/.cursor/` (außer `~/.cursor/worktrees/`), `~/.config/pecker-nest/`, `~/.local/state/pecker-nest/`, Pis und Claude Codes Verzeichnisse, sowie in jedem Repo `.cursorignore`, `.cursor/hooks.json`, `.cursor/hooks/` und `.claude/settings*.json`. |
+| `preToolUse` auf `Read` und `Grep`, `beforeReadFile` (failClosed), `beforeTabFileRead` | Lesen von Dateien, die `.pi/protect.json` unter `read` schützt, immer nach den Regeln des Repos, in dem die Datei liegt. Eine Grep-Suche wird abgelehnt, sobald sie eine solche Datei erreichen kann; die Meldung nennt die Datei, und der Agent sucht dann enger (Pfad oder Glob). Eine Inhaltssuche ohne Pfad und ein Glob, der aus dem Ordner führt, werden ebenfalls abgelehnt. |
+| `beforeSubmitPrompt`, `stop` | Das Quality Gate: wie in nest, mit Prüfung auf abgeschwächte Tests und höchstens `maxRepairRounds` Reparaturrunden (in Cursor höchstens 4). Ist es nach den Runden noch rot, kommt eine letzte Nachricht an den Agenten, die ihm sagt, nichts mehr zu ändern und dir das Ergebnis mit allen Befunden zu berichten; `stop` kann dir selbst nichts anzeigen, und nach der letzten Nachricht ruft Cursor `stop` nicht mehr auf. Ein freigegebenes Repo, das der Agent ändert, ohne dass Cursor es als Workspace-Ordner meldet (nach einem Worktree oder im Multi-root-Fenster), nimmt das Gate mit. |
+
+### Bekannte Lücken
+
+- **`.cursorignore` schützt nichts.** Im Capture las der Agent eine ignorierte Datei trotzdem: Read über einen Umweg, Grep „by reading it directly“, `cat` in der Sandbox. Der Leseschutz hängt allein an den Hooks; `.cursorignore` ist keine zweite Schicht.
+- **Keine Bereinigung der Ausgabe.** nest entfernt aus der Ausgabe von grep, find, ls und bash die Zeilen, die eine geschützte Datei nennen. Cursor erlaubt das nur für MCP-Tools. Deshalb lehnt der Adapter eine Grep-Suche ganz ab, statt sie zu filtern, und Befehle wie `ls` oder `find`, die nur Dateinamen zeigen, laufen durch.
+- **Befehle sind ein Stolperdraht, keine Sandbox**, wie in nest: `cd evals && cat "$(ls)"` kommt durch.
+- **Cloud Agents** führen Hooks auf Benutzerebene nicht aus.
+- **Die CLI im Headless-Modus** (`agent -p`) kennt kein `stop` und kein `beforeSubmitPrompt`, also kein Gate. Die interaktive CLI ist nicht getestet.
+- **Multi-root:** Im Capture meldete Cursor den Hooks nur einen Ordner. Lesen und Schreiben mit Pfad prüft der Adapter trotzdem nach den Regeln des richtigen Repos, eine Dateisuche ohne Pfad aber nur gegen den gemeldeten Ordner: Sie kann Dateinamen aus dem anderen Ordner zeigen.
+- **MCP-Tools** prüft der Adapter nicht.
+- **Dieses Repo selbst** zählt in Cursor zur Harness. Solange das so bleibt, kann der Agent in Cursor `pecker-nest` nicht bearbeiten (offen, siehe [v1-notes.md](v1-notes.md)).
+
+### Rückgängig machen
+
+In allen Shells gleich:
+
+```bash
+rm ~/.cursor/hooks.json ~/.cursor/agents/reviewer.md
+rm ~/.agents/skills/grill-me ~/.agents/skills/testing-ts ~/.agents/skills/testing-py
+ls ~/.cursor/hooks.json.bak.*    # eine frühere hooks.json, falls es eine gab
+```
+
+Danach Cursor neu starten. Die Trust-Liste (`~/.config/pecker-nest/cursor-trusted`) und das Log bleiben liegen, bis du sie löschst.
+
 ## Häufige Probleme
 
 | Meldung oder Symptom | Ursache und Lösung |
@@ -228,6 +302,9 @@ Vorher zeigt `~/dev/pecker-nest/scripts/doctor.sh --docker`, ob Daemon, Key und 
 | Beim Start: „MCP servers need attention: kb …“ | Die Knowledge Base (pecker-grove) läuft nicht oder Pi ist dort nicht angemeldet. Pi arbeitet ohne sie weiter. `~/dev/pecker-nest/scripts/doctor.sh` nennt in der Zeile `knowledge base:` den passenden Befehl; Runbook, M3. |
 | `pi-run.sh`: „error: no container key …“ | Der Container-Key fehlt im Schlüsselbund (Schritt 6). Ein exportierter `OPENROUTER_API_KEY` zählt absichtlich nicht. |
 | `pi-run.sh`: „image pecker-nest-pi is stale …“ | Das Image stammt nicht vom aktuellen Commit, hat kein Label (mit `docker build` von Hand gebaut) oder wurde mit uncommitteten Änderungen gebaut. `~/dev/pecker-nest/scripts/build-image.sh` ausführen; liegt es an `agent/settings.json`, vorher `git checkout agent/settings.json`. Bewusst trotzdem starten: `env PI_RUN_ALLOW_STALE_IMAGE=1 …/pi-run.sh …`. |
+| Cursor lehnt jeden Befehl ab: „the hook cannot start Node“ | Das Node, das `link.sh --cursor` sich gemerkt hat, gibt es nicht mehr (Node-Update, `fnm uninstall`). `~/dev/pecker-nest/scripts/link.sh --cursor` erneut ausführen; `scripts/doctor.sh --cursor` zeigt den Pfad. |
+| Cursor: „Blocked by pecker-nest: a search under … can reach …“ | Absicht: Die Suche würde eine Datei erreichen, die `.pi/protect.json` unter `read` schützt, und Cursor kann die Treffer nicht herausfiltern. Der Agent sucht enger, mit Pfad oder Glob. |
+| Cursor: das Gate läuft nicht | Das Repo steht nicht auf der Trust-Liste (`scripts/cursor-trust.sh list`), hat keine `.pi/gate.json`, oder der Turn hat nur Doku geändert. Das Log (`~/.local/state/pecker-nest/cursor/log.jsonl`) nennt den Grund als `rule`. |
 | `pi-run.sh` meldet `models exit: 1` | Die Modellliste ließ sich nicht laden (keine Verbindung zu `pi.dev` oder `openrouter.ai`). Der Lauf geht mit Pis eingebautem Katalog weiter. |
 
 ## Rückgängig machen
