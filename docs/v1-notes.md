@@ -1,6 +1,33 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 18.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das zweite Update vom 18.11. (Review des Cursor-Adapters), dann das erste vom 18.11. (Cursor-Adapter), dann das vom 17.11. (Supervision-Skills für Cursor und Pi), dann der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 21.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 21.11. (Review pro Pull Request), dann das zweite vom 18.11. (Review des Cursor-Adapters), dann das erste vom 18.11. (Cursor-Adapter), dann das vom 17.11. (Supervision-Skills für Cursor und Pi), dann der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 21.11.2026: Review pro Pull Request (docs/tasks/nest-review.md)
+
+Neuer Skill `nest-review`: Claude prüft nach jedem PR von nest oder Cursor, ob die Aufgabe erfüllt ist, was schlecht lief und an welcher von sechs Stellschrauben es liegt (Config, Anweisungen, Harness-Code, Ziel-Repo, Aufgabenstellung, Umgebung), mit mehreren Fixes samt Aufwand und Nutzen. Er läuft neben `/nest-handoff`, nicht statt. Der Plan steht im Brief, die Entscheidungen im Runbook („Entschieden“, 21.11.).
+
+**Was neu ist:**
+
+- `skills/nest-review/SKILL.md`: Ablauf, die sechs Stellschrauben mit Grenzfällen, festes Ausgabeformat mit einer JSON-Zeile am Ende. Der Skill schreibt nichts; David speichert das Review in `field-notes/reviews/`.
+- `scripts/nest-review.ts collect`: liest den PR mit `gh pr view` (nur lesend) und schlägt das Zeitfenster vor, vom Abzweig vom main bis zum letzten Commit. Das Datum des Abzweigs kommt aus dem lokalen git, sonst per `gh api`. Das Skript listet die Pi-Sessions im Fenster mit den PR-Commits darin und der Zahl der Edits und fasst das Log des Cursor-Adapters für das Repo zusammen (Gate-Läufe, Reparaturrunden, Übergaben, Funde, Blockaden, auch aus Cursor-Worktrees des Repos). Dazu liest es CI und den lokalen Checkout und übernimmt die Konfigurationszeile von `field-note.ts`. Es nennt jeden Abbruchgrund (Exit-Code 1) und jede Warnung, mit Zahlen, Daten und Pfaden, ohne PR-Titel, Commit-Nachrichten oder Inhalte.
+- `scripts/nest-review.ts patterns`: zählt die Problem-Kennungen je Stellschraube über die gespeicherten Reviews, zeigt Wiederkehrendes und ob eine Kennung nach einem eingetragenen Fix noch auftaucht.
+- `scripts/link.sh` verlinkt `nest-review` mit `--claude` und `--cursor`, nicht mit `--pi`. `doctor.sh --cursor` nennt es bei den doppelt sichtbaren Skills mit.
+
+**Wo der Bau vom Plan abweicht:**
+
+- **Problem-Kennungen:** eine feste Liste von 20 Kennungen, die benennen, was schiefging (`tests-not-run`, `scope-creep`, `edit-loop` …), statt einer eigenen Liste je Stellschraube. Die Stellschraube steht im Befund daneben, und `patterns` zählt die Paare. So bleibt sichtbar, wenn dasselbe Problem einmal an den Anweisungen und einmal am Harness lag. Die Kennungen sind englisch wie die Reviews.
+- **Ein PR – ein Modell:** Automatisch bricht das Skript nur bei eindeutigem Beleg ab: bei einem Cursor-PR eine Pi-Session, die Dateien änderte und Commits des PRs machte. Alles andere ist eine Warnung, zu der das Review David fragt. Grund: Der `stop`-Hook des Adapters vergleicht den Arbeitsbaum. Läuft ein Cursor-Chat neben nest (Supervision), zählt er nests Änderungen als Änderungen seines Turns. Außerdem kann das Fenster ab dem Abzweig Arbeit an einem anderen PR enthalten.
+- **Zeitfenster:** Der Abzweig ist das Datum des Commits, auf dem der erste PR-Commit liegt. Lag `main` dort schon länger, holt das Fenster ältere Sessions herein. Deshalb bestätigt David die Sessions, und Sessions ohne PR-Commits sind markiert.
+- **Cursor-Transkript:** Ein eigener Auswerter fehlt. Ort und Format der Transkripte sind nicht erfasst, und der Adapter loggt `transcript_path` nicht. Das Review fragt David nach dem Pfad und zählt selbst.
+
+**Offen, braucht David:**
+
+- Soll der Adapter `transcript_path` mitloggen (ein Pfad, keine Inhalte), damit `collect` das Transkript selbst findet?
+- Die Liste der Kennungen nach den ersten Reviews kürzen oder ergänzen.
+
+**Getestet:** `npm ci`, `npm run check` (562 Tests; neu `test/nest-review.test.ts` mit 27 Tests: PR-Felder und Checks, Fenster, Pi-Sessions aus einem Session-Ordner, Cursor-Log mit Worktree und fremdem Repo, jede Abbruch- und Warnregel, Ausgabe ohne Titel und Commit-Nachrichten, gespeicherte Reviews aus Markdown und `.jsonl`, Muster mit Fix, `collect` als Prozess mit einem `gh`-Stub und einem echten git-Repo; angepasst `test/link.test.ts` und `test/doctor.test.ts`), `npm run e2e` (26 Szenarien, unverändert).
+
+**Nicht getestet:** `gh pr view` gegen GitHub (in der Build-Umgebung ist GitHubs GraphQL gesperrt; getestet mit einem Stub in der Form von `gh pr view --json`), `statusCheckRollup` echter PRs, das Log des Cursor-Adapters auf dem Mac, macOS-bash 3.2 für die geänderten Zeilen in `link.sh` und `doctor.sh`, `pbpaste`, der Skill selbst in Cursor: Er ist ein Anweisungstext, getestet ist das Skript, aus dem er seine Fakten nimmt.
 
 ## Update 18.11.2026 (zweites): Review des Cursor-Adapters (docs/tasks/cursor-adapter-review.md)
 
