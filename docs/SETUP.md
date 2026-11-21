@@ -75,6 +75,7 @@ Extensions laufen mit deinen Rechten im Pi-Prozess. Lies sie deshalb, bevor du `
 | `extensions/provider-log.ts`, `extensions/lib/provider-log.ts` | Schreibt zu jeder Anfrage den OpenRouter-Provider in die Session-Datei, aus dem Stream der Antwort | Schickt selbst keine Anfrage und braucht keinen Key |
 | `extensions/vendor/` | `todo`- und `questionnaire`-Tool, unverändert aus Pis Beispielen | – |
 | `scripts/session-report.ts`, `scripts/field-note.ts`, `skills/nest-supervise`, `skills/nest-handoff` | Kennzahlen aus Pis Session-Logs; die geprüfte Konfiguration und die offene Feldnotiz für die Übergabe; Skills für begleitete Sessions (Claude Code, Cursor, Pi), nicht Teil von Pis Package | Der Report gibt nur Zahlen und Pfade aus und arbeitet offline |
+| `scripts/nest-review.ts`, `skills/nest-review` | Review pro Pull Request: Fakten zum PR (Zeitfenster, Pi-Sessions darin, Einträge des Cursor-Adapters, CI, geprüfte Konfiguration) und die Muster über gespeicherte Reviews; der Skill nur für Claude Code und Cursor | Liest mit `gh` nur, schreibt nichts; das Review speicherst du selbst |
 | `agent/agents/*.md` | Die vier Rollen `scout`, `planner`, `worker`, `reviewer` | Modell und Tools je Rolle |
 | `docker/Dockerfile.pi`, `docker/pi-run.sh`, `docker/task.sh`, `scripts/build-image.sh` | Image und Headless-Läufe | Was in den Container kommt und was nicht; woher `pi-run.sh` den Key nimmt |
 | `scripts/doctor.sh`, `scripts/probe-openrouter.ts` | Prüft, ob der Rechner bereit ist (liest nur; Docker-Daemon und Image nur mit `--docker`); Live-Probe gegen OpenRouter, die du selbst startest | Die Probe schickt echte Anfragen (ein paar Cent) |
@@ -109,7 +110,7 @@ npm run e2e     # echtes Pi gegen den Stand-in; endet mit "all scenarios passed"
    ~/dev/pecker-nest/scripts/link.sh --claude
    ```
 
-   `--claude` verlinkt zusätzlich die Skills `nest-supervise` und `nest-handoff` nach `~/.claude/skills/` (Runbook M7), `--cursor` nach `~/.cursor/skills/` und installiert dazu den Cursor-Adapter (Abschnitt 8), `--pi` nach `~/.pi/agent/skills/`; die Optionen lassen sich kombinieren. Ohne sie bleiben Claude Code, Cursor und Pis Skills unberührt. In einem Skill-Verzeichnis verschiebt das Skript nichts: Was dort kein Link in dieses Repo ist, meldet es als `foreign` und lässt es stehen.
+   `--claude` verlinkt zusätzlich die Skills `nest-supervise`, `nest-handoff` und `nest-review` nach `~/.claude/skills/` (Runbook M7), `--cursor` nach `~/.cursor/skills/` und installiert dazu den Cursor-Adapter (Abschnitt 8), `--pi` die ersten beiden nach `~/.pi/agent/skills/` (`nest-review` nicht: in Pi würden nests eigene Modelle nests Arbeit bewerten); die Optionen lassen sich kombinieren. Ohne sie bleiben Claude Code, Cursor und Pis Skills unberührt. In einem Skill-Verzeichnis verschiebt das Skript nichts: Was dort kein Link in dieses Repo ist, meldet es als `foreign` und lässt es stehen.
 
    Das Skript löscht nichts. Vorhandene Dateien benennt es in `<name>.bak.<zeitstempel>.<pid>` um und zeigt jede Aktion an. `auth.json` und deine Sessions bleiben, wo sie sind. Hattest du in der alten `settings.json` eigene Packages oder Einstellungen, übernimm sie in `~/dev/pecker-nest/agent/settings.json`.
 
@@ -333,6 +334,6 @@ ls *.bak.*                                              # deine gesicherten Date
 mv settings.json.bak.<zeitstempel>.<pid> settings.json  # je Datei, die du zurückhaben willst
 ```
 
-Die Supervision-Skills (alles Symlinks, in allen drei Shells gleich): `rm ~/.claude/skills/nest-supervise ~/.claude/skills/nest-handoff`, ebenso unter `~/.cursor/skills/` und `~/.pi/agent/skills/`, je nachdem, wohin du sie verlinkt hast. Den Container-Key aus dem Schlüsselbund: `security delete-generic-password -a "$USER" -s pecker-nest-container-key`.
+Die Supervision- und Review-Skills (alles Symlinks, in allen drei Shells gleich): `rm ~/.claude/skills/nest-supervise ~/.claude/skills/nest-handoff ~/.claude/skills/nest-review`, ebenso unter `~/.cursor/skills/` und, ohne `nest-review`, unter `~/.pi/agent/skills/`, je nachdem, wohin du sie verlinkt hast. Den Container-Key aus dem Schlüsselbund: `security delete-generic-password -a "$USER" -s pecker-nest-container-key`.
 
 Container-Reste entfernen: `docker rmi pecker-nest-pi` und `docker volume rm pecker-nest-sessions`.

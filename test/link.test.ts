@@ -1,6 +1,6 @@
 /**
  * scripts/link.sh --claude / --cursor / --pi: the supervision skills in each tool's skills directory,
- * idempotent, and nothing foreign moved or replaced. HOME is a scratch directory with
+ * the review skill in Claude Code's and Cursor's only, idempotent, and nothing foreign moved or replaced. HOME is a scratch directory with
  * ~/dev/pecker-nest pointing at this checkout. Also checks that Pi's package leaves the skills out.
  */
 
@@ -16,6 +16,8 @@ import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-codin
 const NEST = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LINK = join(NEST, "scripts/link.sh");
 const SKILLS = ["nest-supervise", "nest-handoff"];
+/** Not for Pi: there nest's own models would grade nest's work. */
+const REVIEW = "nest-review";
 
 const dirs: string[] = [];
 after(() => {
@@ -37,14 +39,15 @@ const link = (home: string, ...args: string[]) =>
 const skillDirs = (home: string) => ({ claude: join(home, ".claude/skills"), cursor: join(home, ".cursor/skills"), pi: join(home, "pi-agent/skills") });
 
 describe("scripts/link.sh skill links", () => {
-	it("links both supervision skills into Claude Code, Cursor and Pi, and a second run changes nothing", () => {
+	it("links both supervision skills into Claude Code, Cursor and Pi, the review skill not into Pi, and a second run changes nothing", () => {
 		const home = scratchHome();
 		assert.equal(link(home, "--check", "--claude", "--cursor", "--pi").status, 1);
 		const run = link(home, "--claude", "--cursor", "--pi");
 		assert.equal(run.status, 0, run.stdout + run.stderr);
-		for (const dir of Object.values(skillDirs(home))) {
-			assert.deepEqual(readdirSync(dir).sort(), [...SKILLS].sort(), dir);
-			for (const name of SKILLS) {
+		for (const [tool, dir] of Object.entries(skillDirs(home))) {
+			const expected = tool === "pi" ? SKILLS : [...SKILLS, REVIEW];
+			assert.deepEqual(readdirSync(dir).sort(), [...expected].sort(), dir);
+			for (const name of expected) {
 				assert.equal(readlinkSync(join(dir, name)), join(NEST, "skills", name));
 				assert.match(readFileSync(join(dir, name, "SKILL.md"), "utf-8"), new RegExp(`^---\\nname: ${name}\\n`));
 			}
@@ -59,6 +62,7 @@ describe("scripts/link.sh skill links", () => {
 		const home = scratchHome();
 		assert.equal(link(home, "--cursor").status, 0);
 		assert.ok(existsSync(join(skillDirs(home).cursor, "nest-supervise")));
+		assert.ok(existsSync(join(skillDirs(home).cursor, REVIEW)));
 		assert.ok(!existsSync(skillDirs(home).claude));
 		assert.ok(!existsSync(skillDirs(home).pi));
 	});

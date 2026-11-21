@@ -4,12 +4,14 @@
 #   scripts/link.sh            link into ${PI_CODING_AGENT_DIR:-~/.pi/agent}
 #   scripts/link.sh --check    only report what is linked, change nothing
 #
-# The supervision skills skills/nest-supervise and skills/nest-handoff, per tool, combinable:
+# The supervision skills skills/nest-supervise and skills/nest-handoff, per tool, combinable, and the
+# review skill skills/nest-review for Claude Code and Cursor only (not Pi: there nest's own models
+# would grade nest's work):
 #   scripts/link.sh --claude   also into ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
 #   scripts/link.sh --cursor   also into ~/.cursor/skills, and installs the Cursor adapter:
 #                              ~/.cursor/hooks.json from cursor/hooks.json, ~/.cursor/agents/reviewer.md,
 #                              and grill-me, testing-ts and testing-py in ~/.agents/skills
-#   scripts/link.sh --pi       also into ${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills
+#   scripts/link.sh --pi       also into ${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills, without nest-review
 #
 #   scripts/link.sh --cursor-capture       only this: install the capture hook of
 #                                          docs/research/cursor-hooks.md as ~/.cursor/hooks.json
@@ -48,6 +50,7 @@ LINK_CLAUDE=0
 LINK_CURSOR=0
 LINK_PI=0
 SUPERVISION_SKILLS="nest-supervise nest-handoff"
+REVIEW_SKILLS="nest-review"
 CURSOR_CAPTURE=""
 usage() {
   echo "usage: scripts/link.sh [--check] [--claude] [--cursor] [--pi]" >&2
@@ -125,10 +128,12 @@ link_skill() {
   echo "linked  $dest -> $src"
 }
 
+# link_skills <dir> <name>...
 link_skills() {
   local dir="$1" name
+  shift
   (( CHECK_ONLY )) || mkdir -p "$dir"
-  for name in $SUPERVISION_SKILLS; do
+  for name in "$@"; do
     link_skill "$NEST_DIR/skills/$name" "$dir/$name"
   done
 }
@@ -320,11 +325,15 @@ for file in "$NEST_DIR"/agent/prompts/*.md; do
   link "$file" "$AGENT_DIR/prompts/$(basename "$file")"
 done
 
-# Skills for supervising nest sessions and writing handoffs (field-notes/README.md). Pi's package
-# leaves them out (package.json: "!skills/nest-*"), so each tool gets them only through these links.
-if (( LINK_CLAUDE )); then link_skills "$CLAUDE_DIR/skills"; fi
-if (( LINK_CURSOR )); then link_skills "$CURSOR_DIR/skills"; fi
-if (( LINK_PI )); then link_skills "$AGENT_DIR/skills"; fi
+# Skills for supervising nest sessions, writing handoffs and reviewing pull requests
+# (field-notes/README.md). Pi's package leaves them out (package.json: "!skills/nest-*"), so each tool
+# gets them only through these links; Pi gets no nest-review.
+# shellcheck disable=SC2086 # the lists are space-separated names
+if (( LINK_CLAUDE )); then link_skills "$CLAUDE_DIR/skills" $SUPERVISION_SKILLS $REVIEW_SKILLS; fi
+# shellcheck disable=SC2086
+if (( LINK_CURSOR )); then link_skills "$CURSOR_DIR/skills" $SUPERVISION_SKILLS $REVIEW_SKILLS; fi
+# shellcheck disable=SC2086
+if (( LINK_PI )); then link_skills "$AGENT_DIR/skills" $SUPERVISION_SKILLS; fi
 
 # The Cursor adapter (docs/SETUP.md, "Cursor"): hooks, reviewer subagent, skills.
 if (( LINK_CURSOR )); then
