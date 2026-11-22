@@ -398,9 +398,11 @@ if [[ "$check_cursor" == 1 ]]; then
 
   # Cursor also loads skills and hooks from Claude Code's directory (Third-Party Imports, on by default).
   visible=""
-  for name in nest-supervise nest-handoff; do
-    [[ -e "$claude_dir/skills/$name" ]] && visible="${visible:+$visible and }$name"
+  for name in nest-supervise nest-handoff nest-review; do
+    [[ -e "$claude_dir/skills/$name" ]] && visible="${visible:+$visible, }$name"
   done
+  # "a, b, c" reads "a, b and c"
+  [[ "$visible" == *", "* ]] && visible="${visible%, *} and ${visible##*, }"
   if [[ -n "$visible" ]]; then
     warn "cursor: $visible are visible to Cursor through $claude_dir/skills/ as well as ~/.cursor/skills/, which is why they show up twice. Fix: nothing needed; after the Claude Code exit remove the links in $claude_dir/skills/"
   fi

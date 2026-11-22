@@ -428,7 +428,7 @@ describe("scripts/doctor.sh --cursor", () => {
 		assert.match(run.line("cursor: the hooks start Node"), new RegExp(`^PASS {2}cursor: the hooks start Node ${process.versions.node.replaceAll(".", "\\.")} at /`));
 		assert.ok(run.line("cursor: 1 repository trusted").startsWith("PASS  "));
 		// link.sh --claude also put the supervision skills into ~/.claude/skills, which Cursor reads too.
-		assert.match(run.line("are visible to Cursor through"), /^WARN {2}cursor: nest-supervise and nest-handoff are visible to Cursor through .*\.claude\/skills\/ .*Fix: /);
+		assert.match(run.line("are visible to Cursor through"), /^WARN {2}cursor: nest-supervise, nest-handoff and nest-review are visible to Cursor through .*\.claude\/skills\/ .*Fix: /);
 	});
 
 	it("fails without the adapter, and says that Cursor then blocks everything", () => {

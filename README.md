@@ -32,8 +32,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   └── lib/                  pure logic, unit-tested; harness.ts, safety-rules.ts and gate-message.ts also
 │                             serve the Cursor adapter
 ├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual);
-│                             nest-supervise, nest-handoff for the supervising agent: Pi's package leaves
-│                             them out ("!skills/nest-*"), scripts/link.sh links them per tool
+│                             nest-supervise, nest-handoff for the supervising agent, nest-review for a
+│                             review per pull request: Pi's package leaves them out ("!skills/nest-*"),
+│                             scripts/link.sh links them per tool
 ├── prompts/                  /plan, /implement <step>, /review
 ├── agent/                    linked into ~/.pi/agent by scripts/link.sh
 │   ├── settings.json         models, tools, compaction, packages (pinned pi-subagents), subagent defaults
@@ -54,13 +55,14 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── user-rule.md          the text for Cursor's User Rules
 │   ├── node.sh               starts hook scripts with the Node recorded at link time
 │   └── capture/              the capture hook of docs/research/cursor-hooks.md
-├── field-notes/              local session notes (git-ignored except README and TEMPLATE)
+├── field-notes/              local session notes and reviews/ (git-ignored except README and TEMPLATE)
 ├── templates/                AGENTS.*.md, gate.*.json; undertext/ (gate.json, protect.json)
 ├── docker/                   Dockerfile.pi, pi-run.sh (container key from the Keychain, refuses a stale
 │                             image), task.sh
 ├── scripts/
 │   ├── link.sh               links agent/ into Pi's agent directory; --claude, --cursor, --pi also link the
-│   │                         supervision skills into that tool's skills directory; --cursor also installs
+│   │                         supervision skills into that tool's skills directory (nest-review not for
+│   │                         Pi); --cursor also installs
 │   │                         the Cursor adapter; --cursor-capture / --cursor-capture-off install and
 │   │                         remove Cursor's capture hook
 │   ├── cursor-trust.sh       add | remove | list: the repositories where the gate may run in Cursor
@@ -75,6 +77,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── session-report.ts     cost, models, switches per reason and strong model and what became of
 │   │                         them, request-time fallbacks, errors per upstream provider, failed
 │   │                         edits, loops, gates from Pi's session logs (offline)
+│   ├── nest-review.ts        for nest-review: collect (the pull request, its window, the Pi sessions in
+│   │                         it, the Cursor adapter's records, CI, the configuration under test) and
+│   │                         patterns (problem tags per lever across the saved reviews)
 │   └── container-config.ts   image build: host-only MCP servers (the knowledge base) and their subagent tools off
 └── test/                     unit tests; e2e/ runs real Pi against a scripted OpenRouter mock
 ```
@@ -91,14 +96,14 @@ pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
 
 In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
 
-## Supervision skills in Claude Code, Cursor and Pi
+## Supervision and review skills in Claude Code, Cursor and Pi
 
-`nest-supervise` and `nest-handoff` live in `skills/` (field-notes/README.md). `scripts/link.sh` links them into each tool you name, combinable and safe to repeat. It never moves or replaces anything in a skills directory that is not its own link; that shows as `foreign` and exit code 1.
+`nest-supervise` and `nest-handoff` (one session, for the planning chat) and `nest-review` (one pull request, for the setup around the agent) live in `skills/` (field-notes/README.md). `scripts/link.sh` links them into each tool you name, combinable and safe to repeat; Pi gets no `nest-review`, because there nest's own models would grade nest's work. It never moves or replaces anything in a skills directory that is not its own link; that shows as `foreign` and exit code 1.
 
 | Flag | Target | Command in the tool |
 | --- | --- | --- |
-| `--claude` | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/` | `/nest-supervise`, `/nest-handoff` |
-| `--cursor` | `~/.cursor/skills/` | `/nest-supervise`, `/nest-handoff` |
+| `--claude` | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/` | `/nest-supervise`, `/nest-handoff`, `/nest-review` |
+| `--cursor` | `~/.cursor/skills/` | `/nest-supervise`, `/nest-handoff`, `/nest-review` |
 | `--pi` | `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/` | `/skill:nest-supervise`, `/skill:nest-handoff` |
 
 bash:
@@ -117,7 +122,7 @@ fish:
 for d in ~/.cursor/skills/nest-* ~/.pi/agent/skills/nest-*; echo "$d -> "(readlink $d); end
 ```
 
-Cursor also loads `~/.claude/skills/`, so with `--claude` and `--cursor` both, Cursor sees the two skills twice until the Claude links are gone. `--cursor` also installs the Cursor adapter (hooks, reviewer subagent, three skills in `~/.agents/skills/`); see [docs/SETUP.md](docs/SETUP.md), section 8. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field notes included; the skills then hand David the note's text instead.
+Cursor also loads `~/.claude/skills/`, so with `--claude` and `--cursor` both, Cursor sees the skills twice until the Claude links are gone. `--cursor` also installs the Cursor adapter (hooks, reviewer subagent, three skills in `~/.agents/skills/`); see [docs/SETUP.md](docs/SETUP.md), section 8. In Pi, nest's own safety gate refuses writes under `~/dev/pecker-nest`, the field notes included; the skills then hand David the note's text instead.
 
 ## Checks
 
