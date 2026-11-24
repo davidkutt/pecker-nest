@@ -70,7 +70,9 @@ required; if it is not available, say so in the pull request).
 - **No machine-specific path in the repository.** The checkout lives at `~/dev/pecker-nest`; paths under
   the home directory are built at link time (`scripts/link.sh`). Shell scripts run under macOS bash 3.2.
 - **Docs:** `README.md` is English and keeps its layout tree in sync. `docs/SETUP.md`, `docs/RUNBOOK.md`
-  and `docs/v1-notes.md` are German, in the existing voice; `docs/tasks/` and `docs/research/` are English.
+  and `docs/v1-notes.md` are German, in the existing voice; `docs/tasks/`, `docs/research/` and
+  `docs/HOW-TO-USE.md` are English. `docs/HOW-TO-USE.md` holds DOs and DON'Ts for the person driving nest,
+  one line each, with the source.
   Findings and deviations go into `docs/v1-notes.md` as a dated "Update" section with "Getestet" and
   "Nicht getestet"; decisions into the "Entschieden" table of `docs/RUNBOOK.md`. A task brief from the
   planning chat is committed as `docs/tasks/<name>.md` in the first commit of its pull request.

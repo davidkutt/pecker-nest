@@ -6,6 +6,7 @@ The plan this implements is "Pi V1 – Konfigurationsplan" (28.10.2026) with the
 
 - **Start here, from zero:** [docs/SETUP.md](docs/SETUP.md)
 - **Acceptance tests, milestones, dogfooding:** [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- **How to work with nest, DOs and DON'Ts:** [docs/HOW-TO-USE.md](docs/HOW-TO-USE.md)
 - **Deviations from the plan and findings:** [docs/v1-notes.md](docs/v1-notes.md)
 
 ## Layout
