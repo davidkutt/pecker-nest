@@ -1,4 +1,5 @@
 import { type BirdColor, type BirdState, birdColor, type Paint } from "./bird.ts";
+import { activeNote, compactNudge, formatCost, gaugeCells, type MeterView, overlayHole, SCENE_MS, sceneRunning } from "./bird-meter.ts";
 import { STRONG_MODELS } from "./router-logic.ts";
 
 /**
@@ -12,6 +13,10 @@ import { STRONG_MODELS } from "./router-logic.ts";
  *    /)  )   |##|      `----------------------------------------'
  *   /_/ /    |##|
  *    `-`     |##|
+ *
+ * With a meter view (bird-meter.ts, docs/tasks/bird-meter.md) the trunk's bark is a gauge of the
+ * context until compaction, the bubble adds the run's cost, notes and the `/compact` nudge, and a
+ * compaction sheds chips off every row. Without one it draws as before.
  *
  * Everything is printable ASCII, every line fits the given width, and the perch is always
  * PERCH_HEIGHT rows when it draws at all, so the editor below never jumps.
@@ -82,15 +87,24 @@ function watching(state: BirdState, clock: PerchClock, now: number): boolean {
 	return !state.running && clock.inputAt !== undefined && now - clock.inputAt < WATCH_MS;
 }
 
-/** How often the perch may change; the widget checks its lines at this rate. */
-export function perchInterval(state: BirdState, clock: PerchClock, now: number): number {
+/** The compaction scene's chips move at this rate. */
+const SCENE_INTERVAL_MS = 100;
+
+/** The pose's frame length. */
+function poseInterval(state: BirdState, clock: PerchClock, now: number): number {
 	if (asleep(state, clock, now)) return SLEEP_INTERVAL_MS;
 	const pose = poseOf(state);
 	return state.repair && pose === "drum" ? REPAIR_INTERVAL_MS : POSE_INTERVAL_MS[pose];
 }
 
+/** How often the perch may change; the widget checks its lines at this rate, faster while chips fall in a compaction scene. */
+export function perchInterval(state: BirdState, clock: PerchClock, now: number, meter?: MeterView): number {
+	const interval = poseInterval(state, clock, now);
+	return sceneRunning(meter?.sceneAt, now) ? Math.min(interval, SCENE_INTERVAL_MS) : interval;
+}
+
 function frameIndex(state: BirdState, clock: PerchClock, now: number): number {
-	return Math.floor(Math.max(0, now - clock.since) / perchInterval(state, clock, now));
+	return Math.floor(Math.max(0, now - clock.since) / poseInterval(state, clock, now));
 }
 
 // ---------------------------------------------------------------- layout
@@ -210,6 +224,34 @@ export function chipsAt(pose: Pose, frame: number): Chip[] {
 	return chips;
 }
 
+/** Chips each trunk row sheds in a compaction scene. */
+const SCENE_WAVES = 3;
+/** The scene's frames: 15 at SCENE_INTERVAL_MS. */
+const SCENE_FRAMES = SCENE_MS / SCENE_INTERVAL_MS;
+
+/**
+ * The chips of the compaction scene at `frame` (SCENE_INTERVAL_MS each): every trunk row sheds
+ * SCENE_WAVES chips to the left or right of the trunk, which drop off the perch before the scene
+ * ends. Deterministic like `chipsAt`.
+ */
+export function sceneChipsAt(frame: number): Chip[] {
+	const chips: Chip[] = [];
+	if (frame < 0 || frame >= SCENE_FRAMES) return chips;
+	for (let row = 0; row < PERCH_HEIGHT; row++) {
+		for (let wave = 0; wave < SCENE_WAVES; wave++) {
+			const shed = wave * 3 + Math.floor(unit(row, wave, 5) * 3);
+			const age = frame - shed;
+			if (age < 0) continue;
+			const y = row + Math.floor(0.25 * age * age + 0.5 * age);
+			if (y >= PERCH_HEIGHT) continue;
+			const drift = age >= 2 ? 1 : 0;
+			const x = unit(row, wave, 6) < 0.5 ? TRUNK_X - 1 - drift : CHIPS_X + drift;
+			chips.push({ x, y, char: age === 0 ? "'" : age % 2 === 1 ? "." : "'" });
+		}
+	}
+	return chips;
+}
+
 // ---------------------------------------------------------------- bubble
 
 export interface Bubble {
@@ -225,35 +267,59 @@ function tallyText(state: BirdState): string {
 	return parts.join(", ");
 }
 
-/** The speech bubble's text, counts only; undefined while the bird sleeps. */
-export function bubbleFor(state: BirdState, clock: PerchClock, now: number): Bubble | undefined {
-	const pose = poseOf(state);
-	if (pose === "idle") {
-		if (asleep(state, clock, now)) return undefined;
-		const tally = tallyText(state);
-		switch (state.outcome) {
-			case "green": {
-				const seconds = state.seconds ? ` in ${state.seconds}s` : "";
-				return { text: `gate green${seconds}.${tally ? ` ${tally}` : " tap tap!"}`, color: "success" };
-			}
-			case "red":
-				return { text: "gate red. ouch.", color: "error" };
-			case "stopped":
-				return { text: "stopped. I'll wait here.", color: "muted" };
-			case "done":
-				return { text: `done.${tally ? ` ${tally}` : ""}`, color: "muted" };
-			default:
-				return { text: "ready when you are", color: "muted" };
+/** The cost of the run when it is more than nothing: `$0.012`. */
+function runCostText(meter: MeterView | undefined): string | undefined {
+	return meter?.runCost !== undefined && meter.runCost > 0 ? formatCost(meter.runCost) : undefined;
+}
+
+/**
+ * The result of the last run, most important first, so cutting it to the width drops the least:
+ * the outcome, the `/compact` nudge, the run's cost, the tally.
+ */
+function resultBubble(state: BirdState, meter: MeterView | undefined): Bubble {
+	const cost = runCostText(meter);
+	const text = (head: string, nudge?: string, tail?: string) => [head, nudge && `${nudge}.`, cost && (tail ? `${cost}.` : cost), tail].filter(Boolean).join(" ");
+	const tally = tallyText(state);
+	switch (state.outcome) {
+		case "green": {
+			const seconds = state.seconds ? ` in ${state.seconds}s` : "";
+			return { text: text(`gate green${seconds}.`, compactNudge(state.outcome, meter?.context?.fill), tally || "tap tap!"), color: "success" };
 		}
+		case "red":
+			return { text: text("gate red. ouch."), color: "error" };
+		case "stopped":
+			return { text: text("stopped. I'll wait here."), color: "muted" };
+		case "done":
+			return { text: text("done.", undefined, tally || undefined), color: "muted" };
+		default:
+			return { text: "ready when you are", color: "muted" };
 	}
+}
+
+/**
+ * The speech bubble's text, counts and money only; undefined while the bird sleeps. While a
+ * compaction scene runs its note comes first; then, during a run, listening, the repair round, a
+ * note and the activity; between runs a note and then the result.
+ */
+export function bubbleFor(state: BirdState, clock: PerchClock, now: number, meter?: MeterView): Bubble | undefined {
+	const pose = poseOf(state);
+	if (pose === "idle" && asleep(state, clock, now)) return undefined;
+	const note = activeNote(meter?.note, now);
+	const noteBubble = note ? { text: note.text, color: note.color } : undefined;
+	if (noteBubble && sceneRunning(meter?.sceneAt, now)) return noteBubble;
+	if (pose === "idle") return noteBubble ?? resultBubble(state, meter);
 	if (pose === "listen") return { text: "listening to the gate...", color: "muted" };
 	if (state.repair) return { text: `repair ${state.repair.round}/${state.repair.of} - hold on`, color: "warning" };
+	if (noteBubble) return noteBubble;
 	const frame = frameIndex(state, clock, now);
 	switch (pose) {
 		case "think": {
 			// Padded dots, so the bubble keeps its width while they count up.
 			const dots = ".".repeat(frame % 4).padEnd(3);
-			return state.strong ? { text: `${STRONG_MODELS[state.strong].name} is thinking${dots}`, color: "error" } : { text: `hmm${dots}`, color: "muted" };
+			const cost = runCostText(meter);
+			return state.strong
+				? { text: `${STRONG_MODELS[state.strong].name} is thinking${dots}${cost ? ` ${cost}` : ""}`, color: "error" }
+				: { text: `hmm${dots}`, color: "muted" };
 		}
 		case "look":
 			return { text: `looking around${state.tally.look > 1 ? ` x${state.tally.look}` : ""}`, color: "muted" };
@@ -358,17 +424,33 @@ const plain: Paint = (_color, text) => text;
 
 /**
  * The perch's lines for a terminal `width` at time `now`: PERCH_HEIGHT lines, each at most `width`
- * columns, or none below PERCH_MIN_WIDTH.
+ * columns, or none below PERCH_MIN_WIDTH. With a meter view the trunk is the context gauge.
  */
-export function perch(state: BirdState, clock: PerchClock, now: number, width: number, paint: Paint = plain): string[] {
+export function perch(state: BirdState, clock: PerchClock, now: number, width: number, paint: Paint = plain, meter?: MeterView): string[] {
 	if (width < PERCH_MIN_WIDTH) return [];
 	const canvas = new Canvas(width, PERCH_HEIGHT);
 	const frame = frameIndex(state, clock, now);
 	const pose = poseOf(state);
+	const scene = sceneRunning(meter?.sceneAt, now);
+	const hole = holeFor(state.tally.peck);
 
-	// The trunk, with the run's hole at beak height.
-	for (let y = 0; y < PERCH_HEIGHT; y++) {
-		canvas.put(TRUNK_X, y, `|${y === BEAK_ROW ? holeFor(state.tally.peck) : "##"}|`, (char) => (char === "|" ? "muted" : char === "#" ? "dim" : "muted"));
+	// The trunk, with the run's hole at beak height: the gauge when the meter knows the context
+	// (all free while chips fall in a compaction scene), the plain bark otherwise.
+	if (meter?.context) {
+		gaugeCells(scene ? undefined : meter.context.fill).forEach((row, y) => {
+			canvas.put(TRUNK_X, y, "|", "muted");
+			(y === BEAK_ROW ? overlayHole(row, hole) : row).forEach((cell, i) => canvas.put(TRUNK_X + 1 + i, y, cell.char, cell.color));
+			canvas.put(TRUNK_X + 3, y, "|", "muted");
+		});
+	} else {
+		for (let y = 0; y < PERCH_HEIGHT; y++) {
+			canvas.put(TRUNK_X, y, `|${y === BEAK_ROW ? hole : "##"}|`, (char) => (char === "|" ? "muted" : char === "#" ? "dim" : "muted"));
+		}
+	}
+
+	// Chips shed in a compaction scene; the bird is drawn over them.
+	if (scene && meter?.sceneAt !== undefined) {
+		for (const chip of sceneChipsAt(Math.floor((now - meter.sceneAt) / SCENE_INTERVAL_MS))) canvas.put(chip.x, chip.y, chip.char, "dim");
 	}
 
 	// The bird; the crest is always red.
@@ -384,7 +466,7 @@ export function perch(state: BirdState, clock: PerchClock, now: number, width: n
 		const step = Math.floor((now - clock.idleSince - SLEEP_AFTER_MS) / SLEEP_INTERVAL_MS) % SNORE.length;
 		for (const [dx, y, z] of SNORE[step]) canvas.put(BUBBLE_X + dx, y, z, "muted");
 	} else {
-		const bubble = bubbleFor(state, clock, now);
+		const bubble = bubbleFor(state, clock, now, meter);
 		const rows = bubble ? bubbleRows(bubble.text, width - BUBBLE_X) : [];
 		rows.forEach((row, y) => {
 			const walls = y === 1 ? [row.slice(0, 2), row.slice(2, -2), row.slice(-2)] : [row];

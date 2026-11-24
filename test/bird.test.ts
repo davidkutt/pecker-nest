@@ -120,7 +120,23 @@ describe("footer", () => {
 
 	it("never uses double spaces, which Pi's footer collapses", () => {
 		const states = [run(start, { type: "model", modelId: GLM }, { type: "turn_start", repair: { round: 1, of: 2 } }), run(start, { type: "settled", aborted: false, gate: { ok: true } })];
-		for (const state of states) assert.doesNotMatch(footer(state) ?? "", / {2}/);
+		for (const state of states) {
+			for (const fill of [undefined, 0.3, 0.64, 0.75, 0.95]) assert.doesNotMatch(footer(state, undefined, fill) ?? "", / {2}/);
+		}
+		assert.doesNotMatch(footer(IDLE, undefined, 0.64) ?? "", / {2}|^ | $/);
+	});
+
+	it("adds the context until compaction from 50%, at the end", () => {
+		assert.equal(footer(IDLE, tag, 0.49), undefined);
+		assert.equal(footer(IDLE, tag, undefined), undefined);
+		assert.equal(footer(IDLE, tag, 0.64), "<muted>ctx 64%</>");
+		assert.equal(footer(run(start, { type: "tool_start", toolName: "edit" }), tag, 0.74), "<warning>ctx 74%</>", "also on Flash while running");
+		const strong = run(start, { type: "model", modelId: GLM }, { type: "turn_start", repair: { round: 1, of: 2 } });
+		assert.equal(footer(strong, tag, 0.92), "<error>GLM 5.3</> <warning>repair 1/2</> <error>ctx 92%</>");
+		const green = run(start, { type: "settled", aborted: false, gate: { ok: true, seconds: 14 } });
+		assert.equal(footer(green, undefined, 0.5), "gate ok 14s ctx 50%");
+		assert.equal(footer(green, undefined, 0.3), "gate ok 14s");
+		assert.equal(footer(green, undefined, undefined), "gate ok 14s", "nothing while the context is unknown");
 	});
 });
 
