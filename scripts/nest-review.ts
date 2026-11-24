@@ -2,10 +2,10 @@
  * Facts for a pull request review (skills/nest-review), read from GitHub, Pi's session files and the
  * Cursor adapter's log instead of typed by hand, and the patterns across saved reviews.
  *
- *   node scripts/nest-review.ts collect --from nest|cursor [--pr <number|url>] [--since <date>] [--json]
+ *   node scripts/nest-review.ts collect [--from nest|cursor] [--pr <number|url>] [--since <date>] [--json]
  *   node scripts/nest-review.ts patterns [--dir <reviews dir>] [--last <n>] [--json]
  *
- * `collect` runs in the product repository. It reads the pull request with `gh` (read-only), proposes
+ * `collect` runs in the product repository. The origin is nest unless `--from cursor` says otherwise. It reads the pull request with `gh` (read-only), proposes
  * the review window (from the commit the branch left `main` at to the last commit), lists the Pi
  * sessions that overlap it, sums up the Cursor adapter's gate and block records for the repository in
  * that window, and reads the CI state, the local checkout and the configuration under test. It names
@@ -287,7 +287,9 @@ export function cursorActivity(entries: readonly CursorLogEntry[], repoRoot: str
 export type Origin = "nest" | "cursor";
 
 export interface Facts {
-	origin?: Origin;
+	origin: Origin;
+	/** True when `--from` was not given and the origin is nest by default. */
+	originDefault?: boolean;
 	pr?: PullRequest;
 	prError?: string;
 	window?: Window;
@@ -307,14 +309,16 @@ const LARGE_DIFF_LINES = 2000;
 export function assess(facts: Facts): { aborts: string[]; warnings: string[] } {
 	const aborts: string[] = [];
 	const warnings: string[] = [];
-	if (!facts.origin) aborts.push("origin missing: say whether nest or Cursor did the work (--from nest|cursor); the review does not guess it");
 	if (!facts.pr) {
 		aborts.push(facts.prError ?? "no pull request found");
 		return { aborts, warnings };
 	}
 	const piChanged = facts.piSessions.filter((session) => session.edits > 0);
 	if (facts.origin === "nest") {
-		if (!facts.piSessions.length) aborts.push(`no Pi session of this repository overlaps the window (${facts.piDir ?? "Pi's session folder"}): nothing to review nest's work by`);
+		if (!facts.piSessions.length)
+			aborts.push(
+				`no Pi session of this repository overlaps the window (${facts.piDir ?? "Pi's session folder"}): nothing to review nest's work by${facts.originDefault ? "; the origin is nest because --from was not given: if Cursor did the work, run collect with --from cursor" : ""}`,
+			);
 		const during = (time: string) => facts.piSessions.some((session) => overlaps({ start: session.start, end: session.end }, { start: time, end: time, source: "since" }));
 		const outside = facts.cursor.changedTurns.filter((time) => !during(time));
 		const inside = facts.cursor.changedTurns.length - outside.length;
@@ -370,7 +374,7 @@ export function renderCollect(facts: Facts, verdict: { aborts: string[]; warning
 			`- Branch: \`${pr.headRefName}\` → \`${pr.baseRefName}\`, head ${pr.headRefOid.slice(0, 7)}; ${pr.commits.length} commit(s), ${pr.files.length} file(s), +${added} −${deleted}`,
 		);
 	}
-	lines.push(`- Origin: ${facts.origin ?? "missing"}`);
+	lines.push(`- Origin: ${facts.origin}${facts.originDefault ? " (default, no --from)" : ""}`);
 	if (facts.window) lines.push(`- Window (${facts.window.source}): ${facts.window.start} → ${facts.window.end}`);
 	lines.push(`- Config under test: ${facts.nest.config}`, `- Open field note: ${facts.fieldNote ?? "none"}`, "", "## Pi sessions in the window", "");
 	if (facts.piSessions.length) {
@@ -609,14 +613,14 @@ function readCursorLog(home: string): CursorLogEntry[] {
 	return [`${file}.1`, file].filter((path) => existsSync(path)).flatMap((path) => parseCursorLog(readFileSync(path, "utf-8")));
 }
 
-function collect(options: { origin?: string; pr?: string; since?: string; cwd: string }): Facts {
+function collect(options: { origin: Origin; originDefault: boolean; pr?: string; since?: string; cwd: string }): Facts {
 	const home = homedir();
 	const top = run("git", ["rev-parse", "--show-toplevel"], options.cwd);
 	const repoRoot = realpathSync(top.ok ? top.out : options.cwd);
-	const origin = options.origin === "nest" || options.origin === "cursor" ? options.origin : undefined;
 	const config = readConfig();
 	const facts: Facts = {
-		origin,
+		origin: options.origin,
+		originDefault: options.originDefault,
 		piSessions: [],
 		piDir: join(sessionsDir(), encodeCwd(repoRoot)),
 		cursor: emptyActivity(),
@@ -668,7 +672,7 @@ function reviewFiles(dir: string): string[] {
 
 // ---------------------------------------------------------------- CLI
 
-const USAGE = "usage: nest-review.ts collect --from nest|cursor [--pr <number|url>] [--since <date>] [--cwd DIR] [--json]\n       nest-review.ts patterns [--dir <reviews dir>] [--last <n>] [--json]";
+const USAGE = "usage: nest-review.ts collect [--from nest|cursor] [--pr <number|url>] [--since <date>] [--cwd DIR] [--json]\n       nest-review.ts patterns [--dir <reviews dir>] [--last <n>] [--json]";
 
 function main(argv: string[]): number {
 	const [command, ...rest] = argv;
@@ -697,7 +701,12 @@ function main(argv: string[]): number {
 		return 2;
 	}
 	if (command === "collect") {
-		const facts = collect(options);
+		const origin = options.origin ?? "nest";
+		if (origin !== "nest" && origin !== "cursor") {
+			console.error(`nest-review.ts: --from expects nest or cursor, got ${origin}`);
+			return 2;
+		}
+		const facts = collect({ ...options, origin, originDefault: options.origin === undefined });
 		const verdict = assess(facts);
 		console.log(options.json ? JSON.stringify({ ...facts, ...verdict }, null, 2) : renderCollect(facts, verdict));
 		return verdict.aborts.length ? 1 : 0;

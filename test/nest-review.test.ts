@@ -214,16 +214,17 @@ describe("assess", () => {
 		assert.deepEqual(assess(facts()), { aborts: [], warnings: [] });
 	});
 
-	it("stops without an origin or a pull request", () => {
-		const verdict = assess(facts({ origin: undefined, pr: undefined, prError: "gh pr view failed (exit 1)" }));
-		assert.equal(verdict.aborts.length, 2);
-		assert.match(verdict.aborts[0], /origin missing/);
-		assert.match(verdict.aborts[1], /gh pr view failed/);
+	it("stops without a pull request", () => {
+		const verdict = assess(facts({ pr: undefined, prError: "gh pr view failed (exit 1)" }));
+		assert.deepEqual(verdict.aborts, ["gh pr view failed (exit 1)"]);
 	});
 
-	it("stops a nest review without a Pi session", () => {
+	it("stops a nest review without a Pi session, and points to --from cursor when nest was only the default", () => {
 		const verdict = assess(facts({ piSessions: [], piDir: "/s/--undertext--" }));
 		assert.match(verdict.aborts.join("\n"), /no Pi session.*\/s\/--undertext--/);
+		assert.doesNotMatch(verdict.aborts.join("\n"), /--from cursor/);
+		const defaulted = assess(facts({ originDefault: true, piSessions: [], piDir: "/s/--undertext--" }));
+		assert.match(defaulted.aborts.join("\n"), /no Pi session.*--from was not given.*--from cursor/);
 	});
 
 	it("asks David about Cursor turns that changed files beside or outside nest's sessions", () => {
@@ -290,6 +291,7 @@ describe("collect output", () => {
 	it("holds counts, dates and paths, not titles or commit messages", () => {
 		const text = renderCollect(facts(), assess(facts()));
 		assert.match(text, /#12 \(open\)/);
+		assert.match(text, /^- Origin: nest$/m);
 		assert.match(text, /2 commit\(s\), 2 file\(s\), \+180 −4/);
 		assert.match(text, /\| `\/s\/a\.jsonl` \| .* \| 2 \| 14 \|/);
 		assert.match(text, /scripts\/session-report\.ts \/s\/a\.jsonl/);
@@ -434,14 +436,23 @@ describe("CLI", () => {
 		assert.equal(collected.pr.checks.state, "green");
 		assert.deepEqual(collected.aborts, []);
 
-		const missing = spawnSync(process.execPath, [SCRIPT, "collect", "--pr", "12"], { cwd: repo, encoding: "utf-8", env: { HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, PI_CODING_AGENT_SESSION_DIR: sessions } });
-		assert.equal(missing.status, 1);
-		assert.match(missing.stdout, /origin missing/);
+		const env = { HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, PI_CODING_AGENT_SESSION_DIR: sessions };
+		assert.equal(collected.origin, "nest");
+		assert.equal(collected.originDefault, false);
+		const defaulted = spawnSync(process.execPath, [SCRIPT, "collect", "--pr", "12", "--json"], { cwd: repo, encoding: "utf-8", env });
+		assert.equal(defaulted.status, 0, defaulted.stdout + defaulted.stderr);
+		assert.equal(JSON.parse(defaulted.stdout).origin, "nest", "without --from the origin is nest");
+		assert.equal(JSON.parse(defaulted.stdout).originDefault, true);
+		const text = spawnSync(process.execPath, [SCRIPT, "collect", "--pr", "12"], { cwd: repo, encoding: "utf-8", env });
+		assert.match(text.stdout, /^- Origin: nest \(default, no --from\)$/m);
 	});
 
 	it("rejects unknown commands, arguments and a bad --last", () => {
 		assert.equal(spawnSync(process.execPath, [SCRIPT, "review"], { encoding: "utf-8" }).status, 2);
 		assert.equal(spawnSync(process.execPath, [SCRIPT, "collect", "--frm", "nest"], { encoding: "utf-8" }).status, 2);
+		const pi = spawnSync(process.execPath, [SCRIPT, "collect", "--from", "pi"], { encoding: "utf-8" });
+		assert.equal(pi.status, 2);
+		assert.match(pi.stderr, /--from expects nest or cursor, got pi/);
 		assert.equal(spawnSync(process.execPath, [SCRIPT, "patterns", "--last", "0"], { encoding: "utf-8" }).status, 2);
 		assert.equal(spawnSync(process.execPath, [SCRIPT, "collect", "--since", "yesterday-ish"], { encoding: "utf-8" }).status, 2);
 	});

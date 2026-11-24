@@ -1,6 +1,21 @@
 # V1 – Abweichungen vom Plan und Befunde
 
-Stand 21.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 21.11. (Review pro Pull Request), dann das zweite vom 18.11. (Review des Cursor-Adapters), dann das erste vom 18.11. (Cursor-Adapter), dann das vom 17.11. (Supervision-Skills für Cursor und Pi), dann der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+Stand 24.11.2026, Pi 1.5.0 (`@earendil-works/pi-coding-agent`; das alte Paket `@mariozechner/pi-coding-agent` ist abgekündigt). Die Abschnitte stehen in umgekehrter Reihenfolge: zuerst das Update vom 24.11. (nest als Standard-Herkunft im Review), dann das vom 21.11. (Review pro Pull Request), dann das zweite vom 18.11. (Review des Cursor-Adapters), dann das erste vom 18.11. (Cursor-Adapter), dann das vom 17.11. (Supervision-Skills für Cursor und Pi), dann der Nachtrag vom 15.11. (Übergabe vom 10.11. auf dem Mac nachgeprüft), dann das Update vom 15.11. (eigenes Metadata Document), dann das vom 12.11. (Knowledge Base), dann das zweite Update vom 10.11. (Messung, Supervision-Skills, Prüfung auf abgeschwächte Tests), dann das erste vom 10.11. (Setup-Härtung und Modell-Passung), dann das vom 08.11. (Kimi K3.1 Pro als Ersatzmodell), dann Strategie A vom 07.11., dann der Teil vom 30.10. (Update „GLM 5.3 & DeepSeek über OpenRouter“). Grundlage sind die Docs, der Quellcode und die Typdeklarationen aus den npm-Paketen. pi.dev selbst war aus der Build-Umgebung nicht erreichbar.
+
+## Update 24.11.2026: nest als Standard-Herkunft in `/nest-review`
+
+Auf Davids Wunsch braucht ein Review von nests Arbeit kein `--from nest` mehr: Ohne `--from` gilt nest, einen PR aus Cursor kennzeichnet David mit `--from cursor`. Das ändert die Entscheidung „Origin as input … it never guesses“ aus dem Brief (docs/tasks/nest-review.md); die neue steht im Runbook („Entschieden“, 24.11.).
+
+**Was sich ändert:**
+
+- `scripts/nest-review.ts collect`: `--from` ist optional, Standard `nest`. Statt des Abbruchs „origin missing“ gibt es nur noch einen Aufruffehler (Exit-Code 2), wenn `--from` weder `nest` noch `cursor` ist. Die Ausgabe zeigt `Origin: nest (default, no --from)`, die JSON-Ausgabe `originDefault: true`.
+- Sicherung gegen einen Cursor-PR, der ohne `--from` als nests Arbeit läuft: Findet `collect` bei angenommenem nest keine Pi-Session im Fenster, bricht es wie bisher ab und nennt dazu `--from cursor`; der Skill fragt David dann, ob Cursor die Arbeit gemacht hat. Liegt im Fenster eine Pi-Session des Repos (etwa Planung), greift das nicht. Dann bleiben die Bestätigung der Sessions durch David und die Warnung vor Cursor-Turns, die Dateien änderten, soweit der Adapter sie geloggt hat.
+- `skills/nest-review/SKILL.md`: fragt nicht mehr nach der Herkunft, nur noch nach der Aufgabe.
+- Docs: Runbook (Ablauf, „Entschieden“), `docs/HOW-TO-USE.md`, `field-notes/README.md`. Der Brief bleibt, wie er im Planungschat entstand.
+
+**Getestet:** `npm ci`, `npm run check` (562 Tests; angepasst in `test/nest-review.test.ts`: ohne PR genau ein Abbruchgrund, der Hinweis auf `--from cursor` nur bei angenommenem nest, `collect` ohne `--from` als Prozess mit Herkunft nest und der Zeile „default“, `--from pi` mit Exit-Code 2), `npm run e2e` (26 Szenarien, unverändert).
+
+**Nicht getestet:** der geänderte Skill in Cursor und Claude Code, `collect` gegen einen echten PR auf GitHub.
 
 ## Update 21.11.2026: Review pro Pull Request (docs/tasks/nest-review.md)
 

@@ -16,7 +16,7 @@ This file grows from real tasks. It starts small on purpose.
 2. `/plan <task or brief>` writes `PLAN.md` (strong model). Read it and answer its open questions.
 3. `/implement 1`, `/implement 2`, … one step per prompt. The quality gate repairs up to two rounds.
 4. `/review` or `/prompt-workflow review-chain <task>`.
-5. You push and open the pull request (nest's gate blocks `git push`), then `/nest-review <PR> --from nest` in Cursor (in Claude Code until 06.12.2026). A supervised session ends with `/nest-handoff`.
+5. You push and open the pull request (nest's gate blocks `git push`), then `/nest-review <PR>` in Cursor (in Claude Code until 06.12.2026); nest is the default origin, a Cursor PR needs `--from cursor`. A supervised session ends with `/nest-handoff`.
 
 ## Before a task
 
