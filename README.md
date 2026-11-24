@@ -29,8 +29,9 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── checkpoint.ts         git checkpoint before every prompt; /rewind, /checkpoints
 │   ├── provider-log.ts       records the upstream OpenRouter provider of every request in the session
 │   │                         file (from the stream, no extra request), for the session report
-│   ├── bird.ts               the woodpecker: an ASCII bird in the working indicator and footer that looks,
-│   │                         pecks, drums and turns red on the strong model; keeps the gate result; /bird
+│   ├── bird.ts               the woodpecker: an ASCII bird in the working indicator, the footer and on a
+│   │                         perch above the editor (lib/bird-perch.ts); looks, pecks, drums, turns red
+│   │                         on the strong model, keeps the gate result; /bird on|minimal|off
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested; harness.ts, safety-rules.ts and gate-message.ts also
 │                             serve the Cursor adapter

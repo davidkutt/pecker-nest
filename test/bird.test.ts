@@ -120,6 +120,15 @@ describe("next", () => {
 	it("listens at the trunk while the run settles", () => {
 		assert.equal(run(start, { type: "settle_check" }).activity, "listen");
 	});
+
+	it("counts the run's tool calls, keeps them after the run and starts over with the next", () => {
+		const tools = ["read", "grep", "edit", "write", "edit", "bash", "subagent"].map((toolName): BirdEvent => ({ type: "tool_start", toolName }));
+		const ended = run(start, ...tools, { type: "settled", aborted: false });
+		assert.deepEqual(ended.tally, { look: 3, peck: 3, drum: 1 });
+		assert.deepEqual(next(ended, start).tally, { look: 0, peck: 0, drum: 0 });
+		// Pi's continuation runs (retries, repair rounds) belong to the same run.
+		assert.deepEqual(run(start, ...tools, start).tally, { look: 3, peck: 3, drum: 1 });
+	});
 });
 
 describe("footer", () => {
