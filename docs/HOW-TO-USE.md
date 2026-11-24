@@ -15,7 +15,7 @@ This file grows from real tasks. It starts small on purpose.
 1. Unclear task: `/hard`, then `/skill:grill-me <brief>`, then `/flash`. Check each round's recommendations before you answer.
 2. `/plan <brief>` in the same session writes `PLAN.md` on the strong model, with the decisions from the grill. Read it and answer its open questions.
 3. `/implement 1`, `/implement 2`, … one step per prompt; each step ends with a commit. The quality gate repairs up to two rounds. `/new` between steps is fine.
-4. `/review` before the pull request. It reviews the branch against `main` and runs on Flash in the session; for the strong model, `/hard`, `/review`, `/flash`.
+4. Review before the pull request on Kimi K3.1 Pro: `/strong kimi`, `/hard`, `/review`, `/flash`, `/strong glm`. `/review` reviews the branch against `main`; the last command puts GLM 5.3 back for `/plan`.
 5. You push and open the pull request (nest's gate blocks `git push`), then `/nest-review <PR>` in Cursor (in Claude Code until 06.12.2026); nest is the default origin, a Cursor PR needs `--from cursor`. Review fixes go onto the same branch.
 6. A supervised session ends with `/nest-handoff`, after `/nest-review`: the handoff closes the field note, and nest-review reads the interventions only from an open note.
 
@@ -79,6 +79,8 @@ This file grows from real tasks. It starts small on purpose.
 - **DO** have the pull request description refreshed after every commit that follows it, before the merge. [pecker-drum M2.1]
 - **DO** tell the supervisor each intervention as it happens. It doesn't watch Pi; it logs only what you tell it. [pecker-drum M2.1]
 - **DO** log as `advice` every design question or fact you add that nest should have found itself. Fixing findings from nest's own `/review` is not an intervention. [pecker-drum M2.1]
+- **DO** run `/review` on Kimi K3.1 Pro before every pull request (loop step 4), not on Flash. In a blind rerun of an M2.1 snapshot, Flash missed the bug that had shipped, GLM 5.3 found it but called it unreachable and offered to document it, and Kimi found it, rated it P1, proved it with a probe and proposed the fix that was merged. One run per model: revisit as reviews come in. [pecker-drum M2.1]
+- **DON'T** copy Kimi's output unread. Its working notes can show up in the answer: one review started with them. [pecker-drum M2.1]
 - **DO** squash-merge a messy history and merge a clean one as it is.
 - **DON'T** let an agent merge, approve, close or comment on pull requests. You merge.
 
