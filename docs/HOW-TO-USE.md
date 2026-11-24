@@ -12,15 +12,17 @@ This file grows from real tasks. It starts small on purpose.
 
 ## The default loop
 
-1. Unclear task: `/hard`, then `/skill:grill-me <idea>`, then `/flash`.
-2. `/plan <task or brief>` writes `PLAN.md` (strong model). Read it and answer its open questions.
-3. `/implement 1`, `/implement 2`, … one step per prompt. The quality gate repairs up to two rounds.
-4. `/review` or `/prompt-workflow review-chain <task>`.
-5. You push and open the pull request (nest's gate blocks `git push`), then `/nest-review <PR>` in Cursor (in Claude Code until 06.12.2026); nest is the default origin, a Cursor PR needs `--from cursor`. A supervised session ends with `/nest-handoff`.
+1. Unclear task: `/hard`, then `/skill:grill-me <brief>`, then `/flash`. Check each round's recommendations before you answer.
+2. `/plan <brief>` in the same session writes `PLAN.md` on the strong model, with the decisions from the grill. Read it and answer its open questions.
+3. `/implement 1`, `/implement 2`, … one step per prompt; each step ends with a commit. The quality gate repairs up to two rounds. `/new` between steps is fine.
+4. `/review` before the pull request. It reviews the branch against `main` and runs on Flash in the session; for the strong model, `/hard`, `/review`, `/flash`.
+5. You push and open the pull request (nest's gate blocks `git push`), then `/nest-review <PR>` in Cursor (in Claude Code until 06.12.2026); nest is the default origin, a Cursor PR needs `--from cursor`. Review fixes go onto the same branch.
+6. A supervised session ends with `/nest-handoff`, after `/nest-review`: the handoff closes the field note, and nest-review reads the interventions only from an open note.
 
 ## Before a task
 
-- **DO** run `~/dev/pecker-nest/scripts/doctor.sh --repo "$PWD"` (same in bash and fish) and fix every `FAIL` first. With a broken gate or a missing `AGENTS.md` the session proves nothing.
+- **DO** run `~/dev/pecker-nest/scripts/doctor.sh --repo "$PWD"` (same in bash and fish) and fix every `FAIL` first, the credential checks included. With a broken gate or a missing `AGENTS.md` the session proves nothing; without a Pi login the first escalation fails. [pecker-drum M2.1]
+- **DO** give every repository its own commit identity (`git config user.name`, `git config user.email`) and turn on GitHub's "Block command line pushes that expose my email". nest commits with whatever git config gives it, and one commit went out with a personal address. [pecker-drum M2.1]
 - **DO** check that `AGENTS.md` names the check command and `.pi/gate.json` runs exactly that command. "Done" means the gate is green.
 - **DO** `/trust` each repository once. Otherwise the gate doesn't run (Pi says "gate.json ignored: this project is not trusted").
 - **DO** start a fresh Pi session (`/new`) for each new task. A continued session carries the old task's context and branch. [pecker-drum]
@@ -32,12 +34,15 @@ This file grows from real tasks. It starts small on purpose.
 - **DO** read `PLAN.md` in full before you approve it. Each step names the test it starts with and the files it changes, and is small enough for one `/implement <n>`.
 - **DO** have every plan checked against the code, not against memory, older handoffs or the target's docs. A handoff had a target's user roles and API prefix wrong; only the target's code showed it. [pecker-drum M2]
 - **DO** answer the plan's open questions before `/implement`, and record real decisions where the repository keeps them (ADR, decision table).
+- **DO** make the plan's docs list name the README whenever user-facing output changes (report columns, file formats, commands). [pecker-drum M2.1]
+- **DON'T** accept grill-me's recommendations wholesale. They are your decisions, and checking them is the cheapest test of nest's planning: in M2.1, 4 of 14 needed a change and one design question was missing. [pecker-drum M2.1]
 - **DON'T** approve a plan that decides product or architecture questions on its own. Those are yours.
 - **DON'T** put two features in one plan. One task, one pull request, one model per pull request. [RUNBOOK, 21.11.2026]
 
 ## Coding tasks
 
-- **DO** look at the diff between steps (`git diff --stat`) before the next `/implement`.
+- **DO** look at the step's commit (`git show --stat`) before the next `/implement`.
+- **DO** start a fresh session (`/new`) between steps when the last one was long: `PLAN.md` and the commits carry the state. Stay in the session only if nest reported a deviation it did not write back into `PLAN.md`. [pecker-drum M2.1]
 - **DO** let the quality gate run its repair rounds. Step in only when it hands back: interventions are what the handoff measures.
 - **DO** use `/rewind` to undo a bad turn instead of repairing it by hand.
 - **DO** switch to `/hard` for a step Flash has failed at twice, and back with `/flash`.
@@ -54,7 +59,7 @@ This file grows from real tasks. It starts small on purpose.
 ## Testing
 
 - **DO** require a test that fails first for every behaviour change, and check that it failed for the expected reason.
-- **DO** break each new guard once in review: delete the check and run the tests. If they stay green, the guard is untested. [pecker-drum M2]
+- **DO** break each new guard once in review: delete the check and run the tests. If they stay green, the guard is untested. [pecker-drum M2, M2.1]
 - **DO** build stand-ins and fakes from the real system's code, including its order of events, not from its docs. [pecker-drum M2]
 - **DON'T** accept tests that call the network or a live model. Mock at the I/O boundary.
 - **DON'T** rely on the gate alone for weakened tests. It catches deleted and skipped tests, suppressions and loosened configuration, but not hollowed-out assertions or dropped `parametrize` cases. Check those in review.
@@ -70,6 +75,9 @@ This file grows from real tasks. It starts small on purpose.
 ## Reviews and pull requests
 
 - **DO** run the repository's text checks on the pull request text before it goes up: no secrets, no private details, nothing from an employer.
+- **DO** have the pull request description refreshed after every commit that follows it, before the merge. [pecker-drum M2.1]
+- **DO** tell the supervisor each intervention as it happens. It doesn't watch Pi; it logs only what you tell it. [pecker-drum M2.1]
+- **DO** log as `advice` every design question or fact you add that nest should have found itself. Fixing findings from nest's own `/review` is not an intervention. [pecker-drum M2.1]
 - **DO** squash-merge a messy history and merge a clean one as it is.
 - **DON'T** let an agent merge, approve, close or comment on pull requests. You merge.
 
@@ -85,5 +93,6 @@ This file grows from real tasks. It starts small on purpose.
 
 ## After a task
 
-- **DO** run `/nest-handoff` for a supervised session and `/nest-review` for each pull request, and save the review.
+- **DO** run `/nest-review` for each pull request and save the review, then `/nest-handoff` for a supervised session.
+- **DO** record every fix you apply for a review tag in `field-notes/reviews/fixes.jsonl`, so `patterns` shows whether the tag comes back.
 - **DO** add what the task taught to this file soon, with its source.

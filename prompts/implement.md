@@ -10,5 +10,6 @@ Work in this order:
 3. Implement the smallest change that makes the test pass. Stay inside the files the step names unless the code forces otherwise; say so if it does.
 4. Run the check command from `AGENTS.md` and fix what it reports.
 5. Tick the step in `PLAN.md` (`- [x]`) and note anything that changed from the plan.
+6. Commit the step on the current branch as one Conventional Commit. If `AGENTS.md` names a commit identity and `git config user.email` gives a different one, do not commit: say so and stop.
 
-Do not start the next step. Report the changed files, the test you added, and the check output.
+Do not start the next step. Report the changed files, the test you added, the check output and the commit.

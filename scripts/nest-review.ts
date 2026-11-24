@@ -65,12 +65,14 @@ export const TAGS: Record<string, string> = {
 	"late-escalation": "the strong model stepped in too late or not at all",
 	"needless-escalation": "the strong model stepped in where the working model would have done",
 	"wrong-block": "the safety gate blocked a legitimate step, or let a wrong one through",
+	"block-unreported": "the safety gate blocked a step and the agent did not tell David",
 	"missing-context": "the agent lacked a fact it needed (repository, knowledge base, task)",
 	"context-lost": "the agent lost track after a compaction or in a long session",
 	"steering-needed": "David had to steer the agent during the session",
 	"provider-errors": "request errors or failed calls from a model provider",
 	"environment-broken": "dependencies, network, container or local tools failed",
 	"cost-high": "the session cost far more than the task warranted",
+	"empty-prompt-arg": "a prompt template arrived without its argument, e.g. /implement without a step",
 };
 
 // ---------------------------------------------------------------- pull request (pure)

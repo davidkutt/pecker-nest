@@ -29,7 +29,7 @@ These rules apply in every repository. A repository's `AGENTS.md` adds project r
 
 ## Safety
 
-- Destructive commands (`rm -rf`, `git push`, `git reset --hard`, `git clean -fdx`, piping downloads into a shell) and writes to `.env*` or secret files are blocked by a gate. Do not try to get around a block; tell the user what you wanted to do and why.
+- Destructive commands (`rm -rf`, `git push`, `git reset --hard`, `git clean -fdx`, piping downloads into a shell) and writes to `.env*` or secret files are blocked by a gate. Do not try to get around a block. After a block, your next message names what was blocked, why you wanted it and what you do instead; stop and ask only when the blocked action was needed for the task. List every block again in your final report.
 - Never print, copy or commit credentials.
 
 ## Communication
