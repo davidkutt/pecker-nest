@@ -10,6 +10,7 @@
   "pi": {
     "extensions": [
       "./extensions/safety-gate.ts",
+      "./extensions/bird.ts",
       "./extensions/quality-gate.ts",
       "./extensions/router.ts",
       "./extensions/checkpoint.ts",
