@@ -3,15 +3,15 @@ import { STRONG_MODELS } from "./router-logic.ts";
 
 /**
  * The perch: the woodpecker on its trunk in a widget above Pi's editor, five rows high and always
- * visible (docs/tasks/bird-deluxe.md, L1). It is drawn from the same state as the working indicator
- * and the footer (bird.ts) plus a clock that says when the current pose started and when the bird
- * last had something to do. Pure and unit-tested; no Pi imports.
+ * visible (docs/tasks/bird-deluxe.md, L1). It is drawn from the same state as the footer (bird.ts)
+ * plus a clock that says when the current pose started and when the bird last had something to do.
+ * Pure and unit-tested; no Pi imports.
  *
- *     ,^.   |##|      .----------------------------------------.
- *    ( ^ >  |o#|      < gate green in 41s. pecked 3, drummed 1 )
- *    /)  )  |##|      `----------------------------------------'
- *   /_/ /   |##|
- *    `-`    |##|
+ *     ,^.    |##|      .----------------------------------------.
+ *    ( ^ =>  |o#|      < gate green in 41s. pecked 3, drummed 1 )
+ *    /)  )   |##|      `----------------------------------------'
+ *   /_/ /    |##|
+ *    `-`     |##|
  *
  * Everything is printable ASCII, every line fits the given width, and the perch is always
  * PERCH_HEIGHT rows when it draws at all, so the editor below never jumps.
@@ -41,7 +41,7 @@ export function startClock(now: number): PerchClock {
 	return { since: now, idleSince: now };
 }
 
-/** The pose for a state. A repair round drums while it thinks, like the working indicator. */
+/** The pose for a state. A repair round drums while it thinks. */
 export function poseOf(state: BirdState): Pose {
 	if (!state.running) return "idle";
 	if (state.repair && (state.activity === "think" || state.activity === "drum")) return "drum";
@@ -69,7 +69,7 @@ export function noteInput(clock: PerchClock, now: number): PerchClock {
 // ---------------------------------------------------------------- timing
 
 const POSE_INTERVAL_MS: Record<Pose, number> = { think: 350, look: 300, peck: 120, drum: 90, listen: 400, idle: 300 };
-/** A repair round drums faster, as in the indicator. */
+/** A repair round drums faster. */
 const REPAIR_INTERVAL_MS = 60;
 /** The rising z's while it sleeps. */
 const SLEEP_INTERVAL_MS = 700;
@@ -95,22 +95,27 @@ function frameIndex(state: BirdState, clock: PerchClock, now: number): number {
 
 // ---------------------------------------------------------------- layout
 
-/** Columns: a one-column margin, the bird (six wide), the trunk, the chips, the bubble. */
+/** The beak row: a see-through column, the head and a two-column beak, at the trunk or turned away. */
+const HEAD = (eye: string) => ` ( ${eye} =>`;
+const HEAD_AWAY = (eye: string) => `<= ${eye} )`;
+const BIRD_WIDTH = 7;
+
+/** Columns: a one-column margin, the bird, the trunk, the chips, the bubble. */
 const WINDUP = 1;
 const REST = 2;
 const RECOIL = 3;
 /** At STRIKE the beak touches the trunk. */
 const STRIKE = 4;
-const TRUNK_X = 10;
-const CHIPS_X = 14;
-const CHIPS_END = 18;
-const BUBBLE_X = 20;
+const TRUNK_X = STRIKE + BIRD_WIDTH;
+const CHIPS_X = TRUNK_X + 4;
+const CHIPS_END = CHIPS_X + 4;
+const BUBBLE_X = CHIPS_END + 2;
 /** The beak's row, where the hole is and the chips start. */
 const BEAK_ROW = 1;
 
 /** The bird facing the trunk (or turned away, looking out); spaces are see-through. */
 function birdSprite(eye: string, away: boolean): string[] {
-	return ["  ,^. ", away ? ` < ${eye} )` : ` ( ${eye} >`, " /)  )", "/_/ / ", " `-`  "];
+	return ["  ,^. ", away ? HEAD_AWAY(eye) : HEAD(eye), " /)  )", "/_/ / ", " `-`  "];
 }
 
 /** Peck: wind up, rest, recoil, strike, recoil. Drum: recoil, strike. */
