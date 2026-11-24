@@ -2,11 +2,8 @@ import { STRONG_MODELS, type Strong, strongByModelId } from "./router-logic.ts";
 
 /**
  * The woodpecker's logic (bird.ts only translates Pi's events and draws): the mood of the
- * current run, its frames for Pi's working indicator and its line in the footer. The perch above
- * the editor is drawn by bird-perch.ts from the same state. Pure and unit-tested; no Pi imports.
- *
- * Every frame is printable ASCII and has the same width, so the indicator never jumps and no
- * terminal draws a glyph wider than expected.
+ * current run and its line in the footer. The bird itself lives on the perch above the editor,
+ * drawn by bird-perch.ts from the same state. Pure and unit-tested; no Pi imports.
  */
 
 /** What the agent is doing right now. */
@@ -115,28 +112,7 @@ export function next(state: BirdState, event: BirdEvent): BirdState {
 	}
 }
 
-// ---------------------------------------------------------------- frames
-
-/** The bird faces the trunk (`|`) on its right; `'` and `:` are chips flying off. Width 8. */
-const FRAMES: Record<Activity, { frames: string[]; intervalMs: number }> = {
-	think: { frames: [" (o>  | ", " (o>  | ", " (o>  | ", " (->  | "], intervalMs: 350 },
-	look: { frames: [" (o>  | ", " (o>  | ", " <o)  | ", " <o)  | "], intervalMs: 300 },
-	peck: { frames: ["(o>   | ", " (o>  | ", "  (o> | ", "   (o>|'", "  (o> | "], intervalMs: 120 },
-	drum: { frames: ["   (o>| ", "   (o>|'", "   (o>|:", "   (o>|'"], intervalMs: 90 },
-	listen: { frames: ["   (o>| ", "   (O>| "], intervalMs: 400 },
-};
-
-/** A repair round drums, faster. */
-const REPAIR_INTERVAL_MS = 60;
-
-export const FRAME_WIDTH = 8;
-
-/** Every raw frame, for tests. */
-export function allFrames(): string[] {
-	return Object.values(FRAMES).flatMap((entry) => entry.frames);
-}
-
-/** The bird's colour: red on the strong model, yellow in a repair round. The perch uses it too. */
+/** The bird's colour on the perch: red on the strong model, yellow in a repair round. */
 export function birdColor(state: BirdState): BirdColor {
 	if (state.strong) return "error";
 	if (state.repair) return "warning";
@@ -145,77 +121,33 @@ export function birdColor(state: BirdState): BirdColor {
 
 const plain: Paint = (_color, text) => text;
 
-/** Paints a frame by character class: bird, trunk, chips. Spaces stay unpainted. */
-function paintFrame(frame: string, bird: BirdColor, paint: Paint): string {
-	const classOf = (char: string): BirdColor | undefined => {
-		if (char === " ") return undefined;
-		if (char === "|") return "muted";
-		if (char === "'" || char === ":") return "dim";
-		return bird;
-	};
-	let out = "";
-	let run = "";
-	let runColor: BirdColor | undefined;
-	const flush = () => {
-		if (run) out += runColor ? paint(runColor, run) : run;
-		run = "";
-	};
-	for (const char of frame) {
-		const color = classOf(char);
-		if (color !== runColor) {
-			flush();
-			runColor = color;
-		}
-		run += char;
-	}
-	flush();
-	return out;
-}
-
-export interface Indicator {
-	/** Changes when the frames change, so the extension only resets the animation then. */
-	key: string;
-	frames: string[];
-	intervalMs: number;
-}
-
-/** The working indicator for the current state. */
-export function indicator(state: BirdState, paint: Paint = plain): Indicator {
-	const activity: Activity = state.repair && (state.activity === "think" || state.activity === "drum") ? "drum" : state.activity;
-	const { frames, intervalMs } = FRAMES[activity];
-	const color = birdColor(state);
-	const interval = state.repair && activity === "drum" ? REPAIR_INTERVAL_MS : intervalMs;
-	return {
-		key: `${activity}:${color}:${interval}`,
-		frames: frames.map((frame) => paintFrame(frame, color, paint)),
-		intervalMs: interval,
-	};
-}
-
 // ---------------------------------------------------------------- footer
 
-/** The footer line. Pi collapses repeated spaces in statuses, so it uses single spaces only. */
-export function footer(state: BirdState, paint: Paint = plain): string {
-	const model = (strong: Strong | undefined) => (strong ? ` ${paint("error", STRONG_MODELS[strong].name)}` : "");
+/**
+ * The footer line, text only: the strong model and the repair round while running, the result of
+ * the last run after it. Undefined when there is nothing to say (before the first run, or a run on
+ * Flash without a repair round). Pi collapses repeated spaces in statuses, so it uses single spaces.
+ */
+export function footer(state: BirdState, paint: Paint = plain): string | undefined {
+	const join = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" ") || undefined;
+	const model = (strong: Strong | undefined) => (strong ? paint("error", STRONG_MODELS[strong].name) : undefined);
 	if (state.running) {
-		const repair = state.repair ? ` ${paint("warning", `repair ${state.repair.round}/${state.repair.of}`)}` : "";
-		// Pi hides the working indicator while the gate runs, so the footer bird listens at the trunk.
-		const bird = state.activity === "listen" ? `${paint(birdColor(state), "(O>")}${paint("muted", "|")}` : `${paint(birdColor(state), "(o>")} ${paint("muted", "|")}`;
-		return `${bird}${model(state.strong)}${repair}`;
+		const repair = state.repair ? paint("warning", `repair ${state.repair.round}/${state.repair.of}`) : undefined;
+		return join(model(state.strong), repair);
 	}
 	switch (state.outcome) {
 		case "green": {
 			const seconds = state.seconds ? ` ${state.seconds}s` : "";
-			return `${paint("success", "(o>|")} ${paint("success", `gate ok${seconds}`)}${model(state.strongUsed)}`;
+			return join(paint("success", `gate ok${seconds}`), model(state.strongUsed));
 		}
 		case "red":
-			return `${paint("error", "(x>|")} ${paint("error", "gate red")}${model(state.strongUsed)}`;
+			return join(paint("error", "gate red"), model(state.strongUsed));
 		case "stopped":
-			return `${paint("muted", "(-> | stopped")}`;
+			return paint("muted", "stopped");
 		case "done":
-			return `${paint("muted", "(o> | done")}${model(state.strongUsed)}`;
+			return join(paint("muted", "done"), model(state.strongUsed));
 		default:
-			return paint("muted", "(o> |");
+			return undefined;
 	}
 }
 

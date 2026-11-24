@@ -2,16 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	activityFor,
-	allFrames,
 	type BirdEvent,
 	type BirdState,
+	birdColor,
 	countGateResults,
 	type EntryLike,
-	FRAME_WIDTH,
 	footer,
 	gateResultSince,
 	IDLE,
-	indicator,
 	next,
 	type Paint,
 	repairRound,
@@ -23,64 +21,26 @@ const start: BirdEvent = { type: "run_start" };
 
 /** Marks every painted segment, so tests see which colour each part gets. */
 const tag: Paint = (color, text) => `<${color}>${text}</>`;
-const untag = (text: string) => text.replace(/<\/?[a-z]*>/g, "");
 
-describe("frames", () => {
-	it("are printable ASCII and all the same width", () => {
-		for (const frame of allFrames()) {
-			assert.match(frame, /^[\x20-\x7e]+$/, `non-ASCII frame ${JSON.stringify(frame)}`);
-			assert.equal(frame.length, FRAME_WIDTH, `frame ${JSON.stringify(frame)}`);
-		}
-	});
-
-	it("keep their text when painted", () => {
-		const states = [run(start), run(start, { type: "model", modelId: GLM }), run(start, { type: "turn_start", repair: { round: 1, of: 2 } })];
-		for (const state of states) {
-			const raw = indicator(state).frames;
-			assert.deepEqual(indicator(state, tag).frames.map(untag), raw);
-		}
-	});
-
-	it("paint bird, trunk and chips separately and leave spaces alone", () => {
-		const frames = indicator(run(start, { type: "tool_start", toolName: "bash" }), tag).frames;
-		assert.equal(frames[1], "   <accent>(o></><muted>|</><dim>'</>");
-	});
-});
-
-describe("indicator", () => {
-	it("looks around while reading, pecks while writing, drums for bash, blinks while thinking", () => {
+describe("activity and colour", () => {
+	it("looks around while reading, pecks while writing, drums for bash", () => {
 		assert.equal(activityFor("read"), "look");
 		assert.equal(activityFor("grep"), "look");
 		assert.equal(activityFor("edit"), "peck");
 		assert.equal(activityFor("write"), "peck");
 		assert.equal(activityFor("bash"), "drum");
 		assert.equal(activityFor("subagent"), "look");
-		assert.ok(indicator(run(start)).frames.some((frame) => frame.includes("(->")));
 	});
 
-	it("turns red on a strong model and back on Flash", () => {
+	it("turns red on a strong model and back on Flash, yellow in a repair round, red when the strong model repairs", () => {
 		const strong = run(start, { type: "model", modelId: GLM });
-		assert.ok(indicator(strong, tag).frames[0].includes("<error>(o></>"));
+		assert.equal(birdColor(strong), "error");
 		const back = next(strong, { type: "model", modelId: FLASH });
-		assert.ok(indicator(back, tag).frames[0].includes("<accent>(o></>"));
+		assert.equal(birdColor(back), "accent");
 		assert.equal(back.strongUsed, "glm");
-	});
-
-	it("drums fast and yellow in a repair round, red when the strong model repairs", () => {
 		const repair = run(start, { type: "turn_start", repair: { round: 1, of: 2 } });
-		const flash = indicator(repair, tag);
-		assert.equal(flash.intervalMs, 60);
-		assert.ok(flash.frames.every((frame) => frame.includes("<warning>")));
-		assert.ok(untag(flash.frames[2]).includes("|:"));
-		const escalated = indicator(next(repair, { type: "model", modelId: KIMI }), tag);
-		assert.ok(escalated.frames.every((frame) => frame.includes("<error>")));
-	});
-
-	it("keeps its key while the frames stay the same, so the animation is not reset", () => {
-		const a = run(start, { type: "tool_start", toolName: "read" });
-		const b = next(a, { type: "tool_start", toolName: "grep" });
-		assert.equal(indicator(a).key, indicator(b).key);
-		assert.notEqual(indicator(a).key, indicator(next(b, { type: "tool_start", toolName: "edit" })).key);
+		assert.equal(birdColor(repair), "warning");
+		assert.equal(birdColor(next(repair, { type: "model", modelId: KIMI })), "error");
 	});
 });
 
@@ -132,35 +92,35 @@ describe("next", () => {
 });
 
 describe("footer", () => {
-	it("shows the bird before the first run", () => {
-		assert.equal(footer(IDLE), "(o> |");
+	it("says nothing before the first run and on Flash without a repair round", () => {
+		assert.equal(footer(IDLE), undefined);
+		assert.equal(footer(run(start, { type: "tool_start", toolName: "edit" })), undefined);
+		assert.equal(footer(run(start, { type: "settle_check" })), undefined);
 	});
 
-	it("shows the strong model and the repair round while running", () => {
+	it("shows the strong model and the repair round while running, without a bird", () => {
 		const state = run(start, { type: "model", modelId: GLM }, { type: "turn_start", repair: { round: 1, of: 2 } });
-		assert.equal(footer(state), "(o> | GLM 5.3 repair 1/2");
-		assert.equal(footer(state, tag), "<error>(o></> <muted>|</> <error>GLM 5.3</> <warning>repair 1/2</>");
+		assert.equal(footer(state), "GLM 5.3 repair 1/2");
+		assert.equal(footer(state, tag), "<error>GLM 5.3</> <warning>repair 1/2</>");
+		assert.equal(footer(run(start, { type: "turn_start", repair: { round: 2, of: 2 } })), "repair 2/2");
 	});
 
 	it("keeps the result of the last run, with the strong model that worked in it", () => {
 		const green = run(start, { type: "model", modelId: KIMI }, { type: "model", modelId: FLASH }, { type: "settled", aborted: false, gate: { ok: true, seconds: 14 } });
-		assert.equal(footer(green), "(o>| gate ok 14s Kimi K3.1 Pro");
-		assert.equal(footer(run(start, { type: "settled", aborted: false, gate: { ok: false } })), "(x>| gate red");
-		assert.equal(footer(run(start, { type: "settled", aborted: true })), "(-> | stopped");
-		assert.equal(footer(run(start, { type: "settled", aborted: false })), "(o> | done");
-	});
-
-	it("listens at the trunk while the gate runs, when Pi hides the working indicator", () => {
-		assert.equal(footer(run(start, { type: "settle_check" })), "(O>|");
+		assert.equal(footer(green), "gate ok 14s Kimi K3.1 Pro");
+		assert.equal(footer(green, tag), "<success>gate ok 14s</> <error>Kimi K3.1 Pro</>");
+		assert.equal(footer(run(start, { type: "settled", aborted: false, gate: { ok: false } })), "gate red");
+		assert.equal(footer(run(start, { type: "settled", aborted: true })), "stopped");
+		assert.equal(footer(run(start, { type: "settled", aborted: false })), "done");
 	});
 
 	it("leaves out seconds the gate did not round up to", () => {
-		assert.equal(footer(run(start, { type: "settled", aborted: false, gate: { ok: true, seconds: 0 } })), "(o>| gate ok");
+		assert.equal(footer(run(start, { type: "settled", aborted: false, gate: { ok: true, seconds: 0 } })), "gate ok");
 	});
 
 	it("never uses double spaces, which Pi's footer collapses", () => {
-		const states = [IDLE, run(start, { type: "model", modelId: GLM }), run(start, { type: "settled", aborted: false, gate: { ok: true } })];
-		for (const state of states) assert.doesNotMatch(footer(state), / {2}/);
+		const states = [run(start, { type: "model", modelId: GLM }, { type: "turn_start", repair: { round: 1, of: 2 } }), run(start, { type: "settled", aborted: false, gate: { ok: true } })];
+		for (const state of states) assert.doesNotMatch(footer(state) ?? "", / {2}/);
 	});
 });
 

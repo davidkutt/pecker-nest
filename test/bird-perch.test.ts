@@ -86,8 +86,15 @@ describe("perch drawing", () => {
 		const painted = perch(state, clock, 1200 + 3 * 120, 80, tag);
 		assert.deepEqual(painted.map(untag), perch(state, clock, 1200 + 3 * 120, 80));
 		assert.ok(painted[0].includes("<error>^</>"), "red crest");
-		assert.ok(painted[1].includes("<accent>( @ ></><muted>|.</><dim>#</><muted>|</><dim>'"), "bird, trunk with the hole, chip");
+		assert.ok(painted[1].includes("<accent>( @ =></><muted>|.</><dim>#</><muted>|</><dim>'"), "bird, trunk with the hole, chip");
 		assert.ok(painted[1].endsWith("<</> <muted>tap tap - peck 1</> <dim>)</>"), "bubble in one run per colour");
+	});
+
+	it("has a two-column beak that points at the trunk, and the other way when it looks out", () => {
+		const { state, clock } = play(...start());
+		assert.equal(perch(state, clock, 1000, 80)[1].slice(0, 15), "   ( @ =>  |##|");
+		const watching = noteInput(play().clock, 100);
+		assert.equal(perch(IDLE, watching, 100, 80)[1].slice(0, 15), "  <= @ )   |##|");
 	});
 
 	it("is the same for the same state and time", () => {
@@ -98,8 +105,8 @@ describe("perch drawing", () => {
 
 	it("leaves out the bubble when it would not fit eight characters", () => {
 		const { state, clock } = play();
-		assert.ok(!perch(state, clock, 100, 31).join("\n").includes("<"));
-		assert.ok(perch(state, clock, 100, 32).join("\n").includes("< ready..."));
+		assert.ok(!perch(state, clock, 100, 32).join("\n").includes("<"));
+		assert.ok(perch(state, clock, 100, 33).join("\n").includes("< ready..."));
 		assert.ok(perch(state, clock, 100, 80)[1].endsWith("< ready when you are )"));
 	});
 });
@@ -109,8 +116,8 @@ describe("perch poses", () => {
 		const { state, clock } = play(...start(), tool(1200, "edit"));
 		assert.equal(poseOf(state), "peck");
 		const at = (frame: number) => perch(state, clock, 1200 + frame * 120, 80)[1];
-		assert.ok(at(0).startsWith("  ( @ >   |"), "wind-up");
-		assert.ok(at(3).startsWith("     ( @ >|"), "beak on the trunk");
+		assert.ok(at(0).startsWith("  ( @ =>   |"), "wind-up");
+		assert.ok(at(3).startsWith("     ( @ =>|"), "beak on the trunk");
 		assert.ok(at(3).includes("|'"), "chip at the strike");
 		assert.equal(perchInterval(state, clock, 1200), 120);
 	});
@@ -120,14 +127,14 @@ describe("perch poses", () => {
 		assert.equal(poseOf(state), "drum");
 		assert.equal(perchInterval(state, clock, 1300), 60);
 		const lines = perch(state, clock, 1300 + 60, 80, tag);
-		assert.ok(lines[1].includes("<warning>( @ ></>"), "yellow bird");
+		assert.ok(lines[1].includes("<warning>( @ =></>"), "yellow bird");
 		assert.ok(lines[1].includes("<warning>repair 1/2 - hold on</>"));
 	});
 
 	it("turns red and names the strong model while it thinks", () => {
 		const { state, clock } = play(...start(), [1100, { type: "model", modelId: GLM }]);
 		const lines = perch(state, clock, 1100, 80, tag);
-		assert.ok(lines[1].includes("<error>( @ ></>"));
+		assert.ok(lines[1].includes("<error>( @ =></>"));
 		assert.ok(untag(lines[1]).includes("< GLM 5.3 is thinking    )"));
 	});
 
@@ -140,14 +147,14 @@ describe("perch poses", () => {
 
 	it("looks around while reading and counts the looks", () => {
 		const { state, clock } = play(...start(), tool(1200, "read"), tool(1200, "grep"));
-		assert.ok(perch(state, clock, 1200, 80)[1].includes("( @ >"));
-		assert.ok(perch(state, clock, 1200 + 2 * 300, 80)[1].includes("< @ )"));
+		assert.ok(perch(state, clock, 1200, 80)[1].includes("( @ =>"));
+		assert.ok(perch(state, clock, 1200 + 2 * 300, 80)[1].includes("<= @ )"));
 		assert.equal(bubbleFor(state, clock, 1200)?.text, "looking around x2");
 	});
 
 	it("listens with the beak on the trunk while the gate runs", () => {
 		const { state, clock } = play(...start(), [1400, { type: "settle_check" }]);
-		assert.ok(perch(state, clock, 1400 + 400, 80)[1].startsWith("     ( O >|"));
+		assert.ok(perch(state, clock, 1400 + 400, 80)[1].startsWith("     ( O =>|"));
 		assert.equal(bubbleFor(state, clock, 1400)?.text, "listening to the gate...");
 	});
 
@@ -176,11 +183,11 @@ describe("perch hole and chips", () => {
 		assert.ok(chipsAt("peck", 3).length >= 1);
 		for (let frame = 0; frame < 200; frame++) {
 			for (const chip of [...chipsAt("peck", frame), ...chipsAt("drum", frame)]) {
-				assert.ok(chip.x >= 14 && chip.x <= 18, `x ${chip.x}`);
+				assert.ok(chip.x >= 15 && chip.x <= 19, `x ${chip.x}`);
 				assert.ok(chip.y >= 0 && chip.y < PERCH_HEIGHT, `y ${chip.y}`);
 			}
 		}
-		assert.ok(chipsAt("peck", 3).every((chip) => chip.x === 14 && chip.y === 1), "chips start at the beak");
+		assert.ok(chipsAt("peck", 3).every((chip) => chip.x === 15 && chip.y === 1), "chips start at the beak");
 		const below = Array.from({ length: 200 }, (_, frame) => chipsAt("peck", frame)).flat().filter((chip) => chip.y > 1);
 		assert.ok(below.length > 0 && below.every((chip) => chip.char === "."), "chips fall below the beak");
 	});
@@ -209,16 +216,16 @@ describe("perch between runs", () => {
 
 	it("shows the result in its eye: happy after green, crossed after red", () => {
 		const happy = play(...start(), green(2000));
-		assert.ok(perch(happy.state, happy.clock, 2000, 80)[1].includes("( ^ >"));
-		assert.ok(perch(happy.state, happy.clock, 2000, 80, tag)[1].includes("<accent>( ^ ></>"), "the eye is not painted like the crest");
+		assert.ok(perch(happy.state, happy.clock, 2000, 80)[1].includes("( ^ =>"));
+		assert.ok(perch(happy.state, happy.clock, 2000, 80, tag)[1].includes("<accent>( ^ =></>"), "the eye is not painted like the crest");
 		const red = play(...start(), [2000, { type: "settled", aborted: false, gate: { ok: false } }]);
-		assert.ok(perch(red.state, red.clock, 2000, 80)[1].includes("( x >"));
+		assert.ok(perch(red.state, red.clock, 2000, 80)[1].includes("( x =>"));
 	});
 
 	it("blinks now and then", () => {
 		const { state, clock } = play();
 		const eyes = Array.from({ length: 13 }, (_, frame) => perch(state, clock, frame * 300, 80)[1]);
-		assert.equal(eyes.filter((row) => row.includes("( - >")).length, 1);
+		assert.equal(eyes.filter((row) => row.includes("( - =>")).length, 1);
 	});
 
 	it("falls asleep after five minutes without a run or a keystroke, and a keystroke wakes it", () => {
@@ -226,7 +233,7 @@ describe("perch between runs", () => {
 		const awake = perch(state, clock, 2000 + SLEEP_AFTER_MS - 1, 80);
 		assert.ok(awake[1].includes("< gate green"));
 		const sleeping = perch(state, clock, 2000 + SLEEP_AFTER_MS + 2 * 700, 80);
-		assert.ok(sleeping[1].includes("( - >"));
+		assert.ok(sleeping[1].includes("( - =>"));
 		assert.ok(sleeping.join("\n").includes("z"), "snores");
 		assert.ok(!sleeping.join("\n").includes("<"), "no bubble while asleep");
 		assert.equal(bubbleFor(state, clock, 2000 + SLEEP_AFTER_MS), undefined);
@@ -234,8 +241,8 @@ describe("perch between runs", () => {
 
 		const woken = noteInput(clock, 2000 + SLEEP_AFTER_MS + 5000);
 		const looking = perch(state, woken, 2000 + SLEEP_AFTER_MS + 5100, 80);
-		assert.ok(looking[1].includes("< @ )"), "looks out at you while you type");
-		assert.ok(perch(state, woken, 2000 + SLEEP_AFTER_MS + 5000 + WATCH_MS, 80)[1].includes("( ^ >"), "then back to the trunk");
+		assert.ok(looking[1].includes("<= @ )"), "looks out at you while you type");
+		assert.ok(perch(state, woken, 2000 + SLEEP_AFTER_MS + 5000 + WATCH_MS, 80)[1].includes("( ^ =>"), "then back to the trunk");
 	});
 
 	it("never sleeps during a run", () => {

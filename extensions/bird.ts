@@ -1,6 +1,6 @@
 /**
- * The woodpecker: an ASCII bird in Pi's working indicator and footer, and on its own perch above
- * the editor, that shows what the agent is doing (lib/bird.ts and lib/bird-perch.ts hold the logic).
+ * The woodpecker: an ASCII bird on its own perch above the editor that shows what the agent is
+ * doing, plus a text line in the footer (lib/bird.ts and lib/bird-perch.ts hold the logic).
  *
  * - It looks around while the agent reads, pecks while it edits or writes, drums while bash runs,
  *   blinks while it thinks, and listens at the trunk while the run settles.
@@ -10,35 +10,35 @@
  * - The perch (interactive mode only) is five rows above the editor and always visible: every edit
  *   deepens a hole in the trunk, strikes throw chips, a speech bubble says what is going on with
  *   counts only. Between runs it blinks, falls asleep after five minutes and looks out at you while
- *   you type. Of the keystrokes it only notes the time; it never reads or consumes them.
- * - /bird on|minimal|off switches it for this process (minimal: indicator and footer, no perch);
- *   PI_NEST_BIRD=minimal or PI_NEST_BIRD=off starts Pi that way.
+ *   you type. Of the keystrokes it only notes the time; it never reads or consumes them. While the
+ *   perch is shown, Pi's working indicator keeps its message and drops its spinner.
+ * - /bird on|off switches it for this process; PI_NEST_BIRD=off starts Pi without it.
  * - Without a UI (print and JSON mode, headless runs in the container) it does nothing.
  *
  * It only reads: Pi's events, the model of each answer and quality-gate.ts's session entries.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type BirdEvent, countGateResults, footer, gateResultSince, IDLE, indicator, next, type Paint, repairRound } from "./lib/bird.ts";
+import { type BirdEvent, countGateResults, footer, gateResultSince, IDLE, next, type Paint, repairRound } from "./lib/bird.ts";
 import { advanceClock, noteInput, perch, perchInterval, startClock, WATCH_MS } from "./lib/bird-perch.ts";
 
 const STATUS_KEY = "nest-bird";
 const PERCH_KEY = "nest-bird-perch";
 
-type Mode = "on" | "minimal" | "off";
+type Mode = "on" | "off";
 
 function modeFrom(value: string | undefined): Mode | undefined {
 	const mode = value?.trim().toLowerCase();
-	return mode === "on" || mode === "minimal" || mode === "off" ? mode : undefined;
+	return mode === "on" || mode === "off" ? mode : undefined;
 }
 
 export default function (pi: ExtensionAPI) {
 	let mode: Mode = modeFrom(process.env.PI_NEST_BIRD) ?? "on";
 	let state = IDLE;
 	let clock = startClock(Date.now());
-	/** The indicator key last handed to Pi; setting the same frames again would restart the animation. */
-	let shownKey: string | undefined;
-	/** The footer text last handed to Pi; RPC mode sends every setStatus to the client, so only changes go out. */
+	/** Whether Pi's working indicator spinner is hidden, so the perch is the only bird. */
+	let spinnerHidden = false;
+	/** The footer text last handed to Pi ("" for none); RPC mode sends every setStatus to the client, so only changes go out. */
 	let shownFooter: string | undefined;
 	/** Gate results on the branch when the run started, so an older result is not taken for this run's. */
 	let gateBaseline = 0;
@@ -50,7 +50,7 @@ export default function (pi: ExtensionAPI) {
 
 	/** Registers the perch: a component that draws from the current state and redraws on its own clock. */
 	function showPerch(ctx: ExtensionContext) {
-		if (mode !== "on" || ctx.mode !== "tui" || perchShown) return;
+		if (mode === "off" || ctx.mode !== "tui" || perchShown) return;
 		perchShown = true;
 		ctx.ui.setWidget(
 			PERCH_KEY,
@@ -106,29 +106,28 @@ export default function (pi: ExtensionAPI) {
 	function draw(ctx: ExtensionContext) {
 		if (mode === "off" || !ctx.hasUI) return;
 		const paint: Paint = (color, text) => ctx.ui.theme.fg(color, text);
-		const current = indicator(state, paint);
-		if (current.key !== shownKey) {
-			shownKey = current.key;
-			ctx.ui.setWorkingIndicator({ frames: current.frames, intervalMs: current.intervalMs });
-		}
-		const line = footer(state, paint);
+		const line = footer(state, paint) ?? "";
 		if (line !== shownFooter) {
 			shownFooter = line;
-			ctx.ui.setStatus(STATUS_KEY, line);
+			ctx.ui.setStatus(STATUS_KEY, line || undefined);
 		}
-		if (mode === "on") {
+		if (ctx.mode === "tui") {
+			// The perch shows what the agent does; the working indicator keeps only Pi's message.
+			if (!spinnerHidden) {
+				spinnerHidden = true;
+				ctx.ui.setWorkingIndicator({ frames: [] });
+			}
 			showPerch(ctx);
 			perchView?.refresh();
 		}
 	}
 
 	function hide(ctx: ExtensionContext) {
-		shownKey = undefined;
 		shownFooter = undefined;
 		hidePerch(ctx);
-		if (!ctx.hasUI) return;
-		ctx.ui.setWorkingIndicator();
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		if (spinnerHidden) ctx.ui.setWorkingIndicator();
+		spinnerHidden = false;
+		if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
 	}
 
 	function apply(ctx: ExtensionContext, event: BirdEvent) {
@@ -141,7 +140,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		state = IDLE;
 		clock = startClock(Date.now());
-		shownKey = undefined;
+		spinnerHidden = false;
 		shownFooter = undefined;
 		perchShown = false;
 		perchView = undefined;
@@ -196,19 +195,16 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("bird", {
-		description: "The woodpecker: /bird on (indicator, footer and perch), /bird minimal (no perch), /bird off",
+		description: "The woodpecker: /bird on (perch above the editor and footer line), /bird off",
 		handler: async (args, ctx) => {
 			const chosen = modeFrom(args);
 			if (!chosen) {
-				ctx.ui.notify(`bird: ${mode}; /bird on|minimal|off`, "info");
+				ctx.ui.notify(`bird: ${mode}; /bird on|off`, "info");
 				return;
 			}
 			mode = chosen;
 			if (mode === "off") hide(ctx);
-			else {
-				if (mode === "minimal") hidePerch(ctx);
-				draw(ctx);
-			}
+			else draw(ctx);
 			ctx.ui.notify(`bird: ${mode}`, "info");
 		},
 	});
