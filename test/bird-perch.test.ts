@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { type BirdEvent, type BirdState, IDLE, next, type Paint } from "../extensions/lib/bird.ts";
+import { type MeterView, NOTE_MS, type Note, SCENE_MS } from "../extensions/lib/bird-meter.ts";
 import {
 	advanceClock,
 	bubbleFor,
@@ -14,12 +15,14 @@ import {
 	perchInterval,
 	poseOf,
 	SLEEP_AFTER_MS,
+	sceneChipsAt,
 	startClock,
 	WATCH_MS,
 } from "../extensions/lib/bird-perch.ts";
 import { GLM } from "../extensions/lib/router-logic.ts";
 
 const tag: Paint = (color, text) => `<${color}>${text}</>`;
+const plainPaint: Paint = (_color, text) => text;
 const untag = (text: string) => text.replace(/<\/?[a-z]*>/g, "");
 
 /** Plays events at times; returns the state and the perch clock as the extension keeps them. */
@@ -254,5 +257,182 @@ describe("perch between runs", () => {
 		const { clock } = play(...start(), green(2000));
 		assert.equal(clock.idleSince, 2000);
 		assert.equal(clock.since, 2000);
+	});
+});
+
+// ---------------------------------------------------------------- the meter on the perch
+
+/** A meter view as bird.ts hands it over; `fill` null is unknown. */
+const view = (fill: number | null, extra: Partial<MeterView> = {}): MeterView => ({ context: fill === null ? {} : { fill }, ...extra });
+const trunk = (lines: string[]) => lines.map((line) => line.slice(11, 15));
+
+describe("perch meter", () => {
+	it("keeps every rule with a meter view: ASCII, never wider than the terminal, five rows", () => {
+		const note = (at: number): Note => ({ text: "context 92% - compaction soon", color: "error", at });
+		const views: MeterView[] = [
+			{},
+			view(null),
+			view(0),
+			view(0.12, { runCost: 0.004 }),
+			view(0.74, { runCost: 1.5, note: note(1500) }),
+			view(0.95, { runCost: 0.02, note: note(2500), sceneAt: 2500 }),
+			view(3.2, { runCost: 12.345 }),
+			view(null, { note: { text: "compacted from 241k (overflow)", color: "warning", at: 1000 }, sceneAt: 1000 }),
+		];
+		for (const { name, state, clock } of everyState()) {
+			for (const meter of views) {
+				for (let now = 0; now < 4000; now += 97) {
+					for (const width of [0, 10, PERCH_MIN_WIDTH - 1, PERCH_MIN_WIDTH, 19, 24, 33, 40, 60, 80, 120, 200]) {
+						const lines = perch(state, clock, now, width, tag, meter);
+						if (width < PERCH_MIN_WIDTH) {
+							assert.deepEqual(lines, [], `${name} at width ${width}`);
+							continue;
+						}
+						assert.equal(lines.length, PERCH_HEIGHT, `${name} at width ${width}`);
+						for (const line of lines.map(untag)) {
+							assert.match(line, /^[\x20-\x7e]*$/, `${name}: non-ASCII ${JSON.stringify(line)}`);
+							assert.ok(line.length <= width, `${name} at ${now}ms: ${line.length} > ${width}`);
+							assert.doesNotMatch(line, / $/, `${name}: trailing space`);
+						}
+					}
+				}
+			}
+		}
+	});
+
+	it("draws exactly as before without a view or without context usage", () => {
+		for (const { state, clock } of everyState()) {
+			assert.deepEqual(perch(state, clock, 2345, 80, tag, {}), perch(state, clock, 2345, 80, tag));
+			assert.deepEqual(perch(state, clock, 2345, 80, tag, undefined), perch(state, clock, 2345, 80, tag));
+		}
+	});
+
+	it("turns the bark into the gauge, bottom-up, with the run's hole at beak height", () => {
+		const edits = play(...start(), tool(1100, "edit"), tool(1101, "edit"), tool(1102, "edit"), green(2000));
+		assert.deepEqual(trunk(perch(edits.state, edits.clock, 2000, 80, plainPaint, view(0.12))), ["|::|", "|o:|", "|::|", "|::|", "|#:|"]);
+		assert.deepEqual(trunk(perch(edits.state, edits.clock, 2000, 80, plainPaint, view(0.75))), ["|::|", "|o#|", "|##|", "|##|", "|##|"]);
+		assert.deepEqual(trunk(perch(IDLE, startClock(0), 0, 80, plainPaint, view(null))), ["|::|", "|::|", "|::|", "|::|", "|::|"]);
+	});
+
+	it("paints filled cells by level, free cells dim, walls and hole muted", () => {
+		const edits = play(...start(), tool(1100, "edit"), green(2000));
+		const rows = perch(edits.state, edits.clock, 2000, 80, tag, view(0.75));
+		assert.ok(rows[1].includes("<muted>|.</><warning>#</><muted>|</>"), rows[1]);
+		assert.ok(rows[4].includes("<muted>|</><warning>##</><muted>|</>"), rows[4]);
+		assert.ok(rows[0].includes("<muted>|</><dim>::</><muted>|</>"), rows[0]);
+		assert.ok(perch(IDLE, startClock(0), 0, 80, tag, view(0.95))[4].includes("<error>##</>"));
+		assert.ok(perch(IDLE, startClock(0), 0, 80, tag, view(0.3))[4].includes("<accent>##</>"));
+	});
+});
+
+describe("perch meter bubbles", () => {
+	const note = (text: string, at: number): Note => ({ text, color: "warning", at });
+
+	it("puts a note over the activity, but not over listening or a repair round", () => {
+		const reading = play(...start(), tool(1200, "read"));
+		const up = view(0.74, { note: note("context 74% of 249k", 1300) });
+		assert.equal(bubbleFor(reading.state, reading.clock, 1300, up)?.text, "context 74% of 249k");
+		assert.equal(bubbleFor(reading.state, reading.clock, 1300 + 4000, up)?.text, "looking around", "gone after four seconds");
+		const listen = play(...start(), [1250, { type: "settle_check" }]);
+		assert.equal(bubbleFor(listen.state, listen.clock, 1300, up)?.text, "listening to the gate...");
+		const repair = play(...start(), [1250, { type: "turn_start", repair: { round: 1, of: 2 } }]);
+		assert.equal(bubbleFor(repair.state, repair.clock, 1300, up)?.text, "repair 1/2 - hold on");
+	});
+
+	it("shows a note between runs before the result, and none while asleep", () => {
+		const ended = play(...start(), green(2000));
+		const failed = view(0.4, { note: { text: "compaction failed", color: "error", at: 3000 } });
+		assert.deepEqual(bubbleFor(ended.state, ended.clock, 3000, failed), { text: "compaction failed", color: "error" });
+		assert.equal(bubbleFor(ended.state, ended.clock, 7000, failed)?.text, "gate green in 41s. tap tap!");
+		const late = view(0.4, { note: { text: "compaction failed", color: "error", at: 2000 + SLEEP_AFTER_MS } });
+		assert.equal(bubbleFor(ended.state, ended.clock, 2000 + SLEEP_AFTER_MS + 1, late), undefined);
+	});
+
+	it("adds the run's cost to the strong model's thinking", () => {
+		const { state, clock } = play(...start(), [1100, { type: "model", modelId: GLM }]);
+		assert.deepEqual(bubbleFor(state, clock, 1100 + 3 * 350, view(0.2, { runCost: 0.012 })), { text: "GLM 5.3 is thinking... $0.012", color: "error" });
+		assert.equal(bubbleFor(state, clock, 1100, view(0.2, { runCost: 0.012 }))?.text, "GLM 5.3 is thinking    $0.012", "the dots keep the width");
+		assert.equal(bubbleFor(state, clock, 1100, view(0.2, { runCost: 0 }))?.text, "GLM 5.3 is thinking   ");
+		const flash = play(...start());
+		assert.equal(bubbleFor(flash.state, flash.clock, 1000, view(0.2, { runCost: 0.012 }))?.text, "hmm   ");
+	});
+
+	it("says the result with the nudge, the cost and the tally, in that order", () => {
+		const result = (meter: MeterView, ...steps: Array<[number, BirdEvent]>) => {
+			const { state, clock } = play(...start(), ...steps);
+			return bubbleFor(state, clock, 9000, meter)?.text;
+		};
+		const tally: Array<[number, BirdEvent]> = [tool(1100, "edit"), tool(1101, "edit"), tool(1102, "edit"), tool(1103, "bash")];
+		assert.equal(result(view(0.78, { runCost: 0.012 }), ...tally, green(2000)), "gate green in 41s. /compact? (78%). $0.012. pecked 3, drummed 1");
+		assert.equal(result(view(0.78), ...tally, green(2000)), "gate green in 41s. /compact? (78%). pecked 3, drummed 1");
+		assert.equal(result(view(0.5, { runCost: 0.012 }), ...tally, green(2000)), "gate green in 41s. $0.012. pecked 3, drummed 1");
+		assert.equal(result(view(0.78, { runCost: 0.012 }), green(2000)), "gate green in 41s. /compact? (78%). $0.012. tap tap!");
+		assert.equal(result(view(null, { runCost: 0.012 }), green(2000)), "gate green in 41s. $0.012. tap tap!", "no nudge while unknown");
+		assert.equal(result(view(0.95, { runCost: 0.02 }), [2000, { type: "settled", aborted: false, gate: { ok: false } }]), "gate red. ouch. $0.020");
+		assert.equal(result(view(0.95), [2000, { type: "settled", aborted: false, gate: { ok: false } }]), "gate red. ouch.");
+		assert.equal(result(view(0.95, { runCost: 0.004 }), [2000, { type: "settled", aborted: true }]), "stopped. I'll wait here. $0.004");
+		assert.equal(result(view(0.95, { runCost: 0.004 }), tool(1100, "edit"), [2000, { type: "settled", aborted: false }]), "done. $0.004. pecked 1");
+		assert.equal(result(view(0.95, { runCost: 0.004 }), [2000, { type: "settled", aborted: false }]), "done. $0.004");
+		assert.equal(result(view(0.95, { runCost: 0 }), [2000, { type: "settled", aborted: false }]), "done.");
+	});
+
+	it("cuts the result from the end, so the tally goes first and the nudge last", () => {
+		const { state, clock } = play(...start(), tool(1100, "edit"), tool(1101, "bash"), green(2000));
+		const meter = view(0.78, { runCost: 0.012 });
+		const bubble = (width: number) => perch(state, clock, 9000, width, plainPaint, meter)[1].slice(21);
+		assert.equal(bubble(200), "< gate green in 41s. /compact? (78%). $0.012. pecked 1, drummed 1 )");
+		assert.equal(bubble(75), "< gate green in 41s. /compact? (78%). $0.012. pec... )");
+		assert.equal(bubble(63), "< gate green in 41s. /compact? (78%).... )");
+	});
+});
+
+describe("perch compaction scene", () => {
+	const scene = view(null, { note: { text: "compacted from 241k", color: "accent", at: 5000 }, sceneAt: 5000 });
+
+	it("sheds chips off every trunk row for one and a half seconds, the same every time", () => {
+		const frames = Array.from({ length: 20 }, (_, frame) => sceneChipsAt(frame));
+		assert.deepEqual(frames, Array.from({ length: 20 }, (_, frame) => sceneChipsAt(frame)));
+		const rows = new Set(frames.flatMap((chips) => chips.filter((chip) => chip.char === "'").map((chip) => chip.y)));
+		assert.deepEqual(rows, new Set([0, 1, 2, 3, 4]), "every row sheds");
+		for (const chip of frames.flat()) {
+			assert.ok([9, 10, 15, 16].includes(chip.x), `beside the trunk: ${chip.x}`);
+			assert.ok(chip.y >= 0 && chip.y < PERCH_HEIGHT);
+		}
+		assert.deepEqual(sceneChipsAt(-1), []);
+		assert.deepEqual(sceneChipsAt(15), [], "over after 1.5 s");
+	});
+
+	it("shows the trunk free, the chips and the note, then the trunk stays unknown", () => {
+		const ended = play(...start(), tool(1100, "edit"), green(2000));
+		const during = perch(ended.state, ended.clock, 5000 + 300, 80, plainPaint, { ...scene, context: { fill: 0.9 } });
+		assert.deepEqual(trunk(during), ["|::|", "|.:|", "|::|", "|::|", "|::|"], "all free while chips fall");
+		assert.ok(during[1].includes("< compacted from 241k )"));
+		assert.ok(during.join("\n").match(/['.]/g)!.length > 1, "chips in the air");
+		const after = perch(ended.state, ended.clock, 5000 + SCENE_MS, 80, plainPaint, scene);
+		assert.deepEqual(trunk(after), ["|::|", "|.:|", "|::|", "|::|", "|::|"]);
+		assert.ok(after[1].includes("< compacted from 241k )"), "the note stays up for its four seconds");
+		assert.ok(perch(ended.state, ended.clock, 5000 + NOTE_MS, 80, plainPaint, scene)[1].includes("< gate green in 41s. pecked 1 )"));
+	});
+
+	it("puts the scene's note over everything while the chips fall", () => {
+		const repair = play(...start(), [4000, { type: "turn_start", repair: { round: 1, of: 2 } }]);
+		assert.equal(bubbleFor(repair.state, repair.clock, 5100, scene)?.text, "compacted from 241k");
+		assert.equal(bubbleFor(repair.state, repair.clock, 5000 + SCENE_MS, scene)?.text, "repair 1/2 - hold on");
+	});
+
+	it("draws at the chips' rate while the scene runs, then at the pose's", () => {
+		const { state, clock } = play();
+		assert.equal(perchInterval(state, clock, 5100, scene), 100);
+		assert.equal(perchInterval(state, clock, 5000 + SCENE_MS, scene), 300);
+		const drum = play(...start(), [4000, { type: "turn_start", repair: { round: 1, of: 2 } }]);
+		assert.equal(perchInterval(drum.state, drum.clock, 5100, scene), 60, "never slower than the pose");
+	});
+
+	it("keeps the bird whole over the chips", () => {
+		const { state, clock } = play(...start(), [4900, { type: "tool_start", toolName: "edit" }]);
+		for (let now = 5000; now < 5000 + SCENE_MS; now += 20) {
+			const row = perch(state, clock, now, 80, plainPaint, scene)[1];
+			assert.match(row, /\( @ =>/, `${now}: ${row}`);
+		}
 	});
 });

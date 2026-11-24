@@ -1,3 +1,4 @@
+import { ctxPart } from "./bird-meter.ts";
 import { STRONG_MODELS, type Strong, strongByModelId } from "./router-logic.ts";
 
 /**
@@ -123,13 +124,19 @@ const plain: Paint = (_color, text) => text;
 
 // ---------------------------------------------------------------- footer
 
+const join = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" ") || undefined;
+
 /**
  * The footer line, text only: the strong model and the repair round while running, the result of
- * the last run after it. Undefined when there is nothing to say (before the first run, or a run on
- * Flash without a repair round). Pi collapses repeated spaces in statuses, so it uses single spaces.
+ * the last run after it, and from 50% the context until compaction (`ctx 64%`, bird-meter.ts) at
+ * the end. Undefined when there is nothing to say (before the first run, or a run on Flash without
+ * a repair round, below 50%). Pi collapses repeated spaces in statuses, so it uses single spaces.
  */
-export function footer(state: BirdState, paint: Paint = plain): string | undefined {
-	const join = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" ") || undefined;
+export function footer(state: BirdState, paint: Paint = plain, fill?: number): string | undefined {
+	return join(status(state, paint), ctxPart(fill, paint));
+}
+
+function status(state: BirdState, paint: Paint): string | undefined {
 	const model = (strong: Strong | undefined) => (strong ? paint("error", STRONG_MODELS[strong].name) : undefined);
 	if (state.running) {
 		const repair = state.repair ? paint("warning", `repair ${state.repair.round}/${state.repair.of}`) : undefined;
