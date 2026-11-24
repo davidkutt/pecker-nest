@@ -448,5 +448,11 @@ Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (peck
 | 24.11.2026 | Specht: Terminal und Ton | Ziel ist Apple Terminal mit fish. Damit entfallen Inline-Bilder (Kitty- und iTerm2-Protokoll). Kein Ton. |
 | 24.11.2026 | Specht: Sitzstange | Fünf Zeilen über dem Editor, immer sichtbar, auch zwischen den Läufen. `/bird minimal` oder `PI_NEST_BIRD=minimal` zeigt den Specht wie bisher nur in Arbeitsanzeige und Fußzeile. |
 | 24.11.2026 | Specht: nur die Sitzstange | Der kleine Vogel `(o>` in Arbeitsanzeige und Fußzeile entfällt, mit ihm `/bird minimal` und `PI_NEST_BIRD=minimal`; ändert „Specht: Sitzstange“ vom selben Tag. Die Fußzeile behält ihren Text (starkes Modell, Reparaturrunde, Ergebnis des letzten Laufs), Pis Arbeitsanzeige zeigt nur ihre Meldung, ohne Spinner. `/bird on\|off` bleibt. |
+| 24.11.2026 | Specht: Meter | Der Stamm zeigt den Kontext bis zur Kompaktierung, nicht das ganze Fenster: 10 Felder von unten, ab 70 % gelb, ab 90 % rot. Bei nest kompaktiert Pi bei Fenster minus 800k Reserve, also bei rund 249k Tokens. Plan: [tasks/bird-meter.md](tasks/bird-meter.md). |
+| 24.11.2026 | Specht: /meter | Eigener Befehl, nicht unter `/bird`: `/meter` zeigt Kontext und Kosten, `/meter context` und `/meter cost` je eins. Funktioniert auch bei `/bird off`. |
+| 24.11.2026 | Specht: Budget | Vorerst kein Budget, nur Zahlen. Ein Tagesbudget frühestens mit den Statistiken aus L4. |
+| 24.11.2026 | Specht: /compact-Hinweis | Nach grünem Gate ab 70 % schlägt die Sprechblase `/compact` vor. |
+| 24.11.2026 | Specht: Fußzeile | `ctx N%` ab 50 %, bezogen auf die Kompaktierung. |
+| 24.11.2026 | Specht: was er liest | Zusätzlich Kontextnutzung, Kosten aus den Session-Einträgen und die wirksamen Kompaktierungs-Einstellungen. Er schreibt weiterhin nichts und ruft kein Modell auf. |
 
 Alle offenen Fragen des Plans sind damit entschieden. Bewusst offen bis nach der Live-Probe und den ersten echten Sessions: Provider festlegen (`only`, `quantizations`), `DEFAULT_STRONG`, Flashs Denkstufe, die Eskalationsschwellen, Preserved Thinking für GLM und der Vergleich mit pi-project-profile.

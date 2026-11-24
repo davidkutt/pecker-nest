@@ -15,9 +15,10 @@ of `docs/RUNBOOK.md` (24.11.2026).
   pixel image of the bird is out. Theme tokens let Pi map the colours to what the terminal supports.
 - **The perch sits above the editor and is always visible**, also between runs.
 - **No sound.**
-- **The bird still only reads:** Pi's events, the model of each answer and the gate's session entries. It
-  writes no session entry and no file and calls no model. Speech bubbles are fixed templates with counts,
-  never file names, prompts or output.
+- **The bird still only reads:** Pi's events, the model of each answer and the gate's session entries;
+  since L1b also the context usage, the cost in the session entries and the effective compaction
+  settings. It writes no session entry and no file and calls no model. Speech bubbles are fixed templates
+  with counts and money, never file names, prompts or output.
 - **No new dependencies.** Sprites, wordmark and scenes are written by hand.
 - **Logic stays pure** in `extensions/lib/` with unit tests; `bird.ts` only translates Pi's events and
   hands lines to Pi.
@@ -39,6 +40,10 @@ One pull request each, in this order.
    drawn from Pi's session files with the session report's logic (read only).
 
 Dropped by the decisions above: half-block pixel art, braille particles, inline images, sound.
+
+**L1b, the meter,** came in between, from the planning chat of 24 November 2026: the trunk shows how
+close the session is to auto-compaction. Details below; the full brief is
+[bird-meter.md](bird-meter.md).
 
 ## L1: the perch
 
@@ -82,3 +87,38 @@ Tests: every perch line is printable ASCII and never wider than the given width 
 pose, many points in time); the perch is always five rows when it draws; poses, hole stages, chips,
 bubble texts, sleep, waking and the watch pose; the run's tally in `next()`; the clock that tells the
 perch when a pose started and when the bird went idle.
+
+## L1b: the meter
+
+nest reserves 800k tokens for compaction (`compaction.modelOverrides` in `agent/settings.json`), so Pi
+1.5.0 compacts at the routed model's window minus that reserve: 248,576 tokens, about 24% of the
+1,048,576-token window. Pi's footer counts against the whole window and turns yellow only at 70% of it,
+which a nest session never reaches. The meter counts against the compaction point.
+
+Decisions (24.11.2026, rows "Specht: Meter" to "Specht: was er liest" in `docs/RUNBOOK.md`):
+
+- **The trunk shows the context until compaction**, not the window and not the cost: ten cells filled
+  bottom-up with `#` (theme colour `accent`, `warning` from 70%, `error` from 90%), free cells a dim `:`,
+  all free while the context is unknown right after a compaction. The run's hole lies over the cells.
+- **`/meter`** is its own command, not part of `/bird`: `/meter` prints context and cost, `/meter context`
+  and `/meter cost` one of them. It works with `/bird off`.
+- **No budget for now**, numbers only. A daily budget comes with L4's stats at the earliest.
+- **The `/compact` nudge:** after a green gate with the trunk at 70% or more, the result bubble suggests
+  `/compact`.
+- **Footer:** `ctx N%` from 50%, relative to the compaction point.
+- **The bird reads more** (see Decisions above), and still only reads.
+
+Bubbles: a note when the fill crosses 70% (`context 74% of 249k`) or 90% (`context 92% - compaction
+soon`), for 4 s and once per crossing; the strong model's thinking with the run's cost so far; the result
+with the nudge, the run's cost and the tally, in that order, so that cutting to the width drops the tally
+first; on a compaction, 1.5 s of chips falling off every trunk row and `compacted from 241k`;
+`compaction failed` when one fails.
+
+Pi hands `message_end` and `tool_execution_end` to extensions before it stores the message, so the meter
+reads when a tool starts (the answer that called it is stored) and at `turn_end` (Pi has stored the
+answer and its tool results), not at those two events as first planned; see `docs/v1-notes.md`.
+
+Tests: the compaction point with Pi's fallback order, fill levels, gauge cells and the hole over them,
+crossings, the cost sum against every entry type Pi's footer counts, the `/meter` texts, the bubbles
+with their priority and cut, the compaction scene, the footer part; and every perch line printable ASCII
+and never wider than the terminal with a meter view, too.

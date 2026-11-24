@@ -46,6 +46,7 @@ This file grows from real tasks. It starts small on purpose.
 - **DO** let the quality gate run its repair rounds. Step in only when it hands back: interventions are what the handoff measures.
 - **DO** use `/rewind` to undo a bad turn instead of repairing it by hand.
 - **DO** switch to `/hard` for a step Flash has failed at twice, and back with `/flash`.
+- **DO** read the context on the bird's trunk or with `/meter`, not in Pi's `N%/1.0M`: nest compacts at about 249k tokens, a quarter of the window. `/compact` between steps when the bird suggests it after a green gate. (untested) [tasks/bird-meter.md]
 - **DON'T** work around a safety-gate block. Wrong blocks are harness findings for pecker-nest.
 - **DON'T** let nest run anything that costs money or touches a live system. You run those.
 

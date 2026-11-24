@@ -31,10 +31,13 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   │                         file (from the stream, no extra request), for the session report
 │   ├── bird.ts               the woodpecker: an ASCII bird on a perch above the editor (lib/bird-perch.ts)
 │   │                         and a text line in the footer; looks, pecks, drums, turns red on the strong
-│   │                         model, keeps the gate result; /bird on|off
+│   │                         model, keeps the gate result; its trunk is a meter of the context until
+│   │                         auto-compaction, the bubbles add the run's cost; /bird on|off, /meter
 │   ├── vendor/               todo and questionnaire tools, copied unchanged from Pi's examples
 │   └── lib/                  pure logic, unit-tested; harness.ts, safety-rules.ts and gate-message.ts also
-│                             serve the Cursor adapter
+│       │                     serve the Cursor adapter
+│       └── bird-meter.ts     the meter: compaction point as Pi computes it, trunk gauge, notes, cost sum,
+│                             /meter texts
 ├── skills/                   testing-ts, testing-py, best-practices (knowledge base), grill-me (manual);
 │                             nest-supervise, nest-handoff for the supervising agent, nest-review for a
 │                             review per pull request: Pi's package leaves them out ("!skills/nest-*"),
