@@ -1,7 +1,7 @@
 ---
 name: nest-review
 description: Review one pull request that nest (Pi) or Cursor's agent built - whether it met the task, what went badly, and which of six levers of the setup to change, with several fixes per problem. Use when David asks for a review of a PR.
-argument-hint: "<PR number or URL> --from nest|cursor, then the task as David gave it to the agent"
+argument-hint: "<PR number or URL> [--from cursor], then the task as David gave it to the agent"
 disable-model-invocation: true
 ---
 
@@ -15,13 +15,13 @@ Commands: `/nest-review` in Cursor and Claude Code. Not in Pi, where nest's own 
 
 ## 1. Inputs
 
-David gives three things with the command: the pull request (number or URL; without one, the pull request of the current branch), its origin (`--from nest` or `--from cursor`), and the task as he gave it to the agent, pasted. If the origin or the task is missing, ask for it in one line and wait. Never guess the origin. If the task names a brief (for example `docs/tasks/<name>.md` or `docs/milestones/M1.md`), read it and take its acceptance checks.
+David gives the pull request with the command (number or URL; without one, the pull request of the current branch) and the task as he gave it to the agent, pasted. The origin is nest unless he adds `--from cursor`; `--from nest` says the same as no `--from`. If the task is missing, ask for it in one line and wait. Never put a pull request down to Cursor without `--from cursor`. If the task names a brief (for example `docs/tasks/<name>.md` or `docs/milestones/M1.md`), read it and take its acceptance checks.
 
 ## 2. Facts
 
-In the product repository, run `node ~/dev/pecker-nest/scripts/nest-review.ts collect --from <origin> --pr <pr>`, with `--since <date>` if David named a start, and once more with `--json`. The script reads the pull request with `gh`, proposes the window (from the commit the branch left `main` at to the last commit), lists the Pi sessions in it, sums up the Cursor adapter's records, and reads CI, the local checkout and the configuration under test.
+In the product repository, run `node ~/dev/pecker-nest/scripts/nest-review.ts collect --pr <pr>`, with `--from cursor` if David gave it and `--since <date>` if he named a start, and once more with `--json`. The script reads the pull request with `gh`, proposes the window (from the commit the branch left `main` at to the last commit), lists the Pi sessions in it, sums up the Cursor adapter's records, and reads CI, the local checkout and the configuration under test.
 
-- **"Cannot review"** (exit code 1): stop. Show David the reasons as printed and what would fix each. Never review with an input missing.
+- **"Cannot review"** (exit code 1): stop. Show David the reasons as printed and what would fix each. Never review with an input missing. If it stops because no Pi session overlaps the window and David gave no `--from`, ask him in one line whether Cursor did the work; if yes, run `collect` again with `--from cursor`.
 - **Sessions:** show David the window and the Pi sessions (file, start and end, PR commits made during it, edits). Ask which belong to this pull request. A session without PR commits is often planning, or another pull request. If David names another start, run `collect` again with `--since`.
 - **Other agent:** a warning about Cursor turns or Pi sessions that changed files means you ask David whether another agent worked on this pull request. If yes, stop: one PR, one model. If it was supervision beside nest, or an intervention logged in the field note, go on and count interventions as interventions.
 - **Configuration:** copy the `Config under test` line as it is. Put the warnings about uncommitted or newer pecker-nest commits into the header: the numbers are then not comparable with other reviews.
