@@ -1,13 +1,15 @@
 /**
- * scripts/doctor.sh against stub tools: `pi`, `node`, `pnpm`, `uv`, `docker` and `security` on
- * PATH answer as the test says, HOME is a scratch directory with ~/dev/pecker-nest pointing at
- * this checkout. Nothing here needs Pi, Docker, a Keychain or a key. The `docker` stub records
- * its calls, so the tests can tell that Docker is not asked without `--docker`.
+ * scripts/doctor.sh against stub tools: `pi`, `node`, `pnpm`, `uv`, `docker`, `security` and `gh`
+ * on PATH answer as the test says, HOME is a scratch directory with ~/dev/pecker-nest pointing at
+ * this checkout. Nothing here needs Pi, Docker, a Keychain, GitHub or a key. The `docker` stub
+ * records its calls, so the tests can tell that Docker is not asked without `--docker`. `git` is
+ * the real one behind a stub that records its calls; the notes checkouts of scripts/kb-sources.sh
+ * are real repositories whose GitHub origin git rewrites to a local bare repository.
  */
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +21,8 @@ const DOCTOR = join(NEST, "scripts/doctor.sh");
 const HEAD = spawnSync("git", ["-C", NEST, "rev-parse", "HEAD"], { encoding: "utf-8" }).stdout.trim();
 const PI_VERSION = JSON.parse(readFileSync(join(NEST, "package.json"), "utf-8")).devDependencies["@earendil-works/pi-coding-agent"] as string;
 const SECRET = "sk-or-interactive-secret";
+const KB_SOURCES = join(NEST, "scripts/kb-sources.sh");
+const REAL_GIT = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf-8" }).stdout.trim();
 
 /** What \`pi mcp list --json\` prints for the knowledge base in a given state. */
 function mcpList(state: string, extra: Record<string, unknown> = {}): string {
@@ -77,6 +81,20 @@ printf '%s\\n' "$*" >> "$STUB_DIR/security-calls"
 [[ "$1" == find-generic-password && "$STUB_KEYCHAIN_ITEM" == 1 ]] && { echo "keychain: \\"login.keychain-db\\""; exit 0; }
 exit 44
 `,
+	// The real git, with its calls recorded; STUB_GIT_HANG=1 makes ls-remote hang like a dead network.
+	git: `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$STUB_DIR/git-calls"
+if [[ "\${STUB_GIT_HANG:-0}" == 1 && " $* " == *" ls-remote "* ]]; then exec sleep 30; fi
+exec "\${STUB_REAL_GIT:-/usr/bin/git}" "$@"
+`,
+	// Only the read-only call of scripts/kb-sources.sh; open pull requests from ~/gh-prs/<owner>_<repo>.json.
+	gh: `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$STUB_DIR/gh-calls"
+[[ "$1 $2 $3 $5 $6 $7 $8" == "pr list --repo --state open --json number,title,headRefName" && $# -eq 8 ]] || { echo "gh stub: unexpected $*" >&2; exit 2; }
+[[ "$STUB_GH_AUTH" == 1 ]] || { echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4; }
+file="$STUB_DIR/gh-prs/\${4//\\//_}.json"
+if [[ -f "$file" ]]; then cat "$file"; else echo "[]"; fi
+`,
 };
 
 /**
@@ -104,6 +122,8 @@ interface Options {
 	/** Runs after the links, with the scratch HOME and the environment doctor gets. */
 	setup?: (home: string, env: Record<string, string>) => void;
 	args?: string[];
+	/** The script to run instead of doctor.sh. */
+	script?: string;
 }
 
 function doctor(options: Options = {}) {
@@ -134,6 +154,8 @@ function doctor(options: Options = {}) {
 		STUB_DOCKER_UP: "1",
 		STUB_IMAGE_LABELS: `${HEAD}|0`,
 		STUB_KEYCHAIN_ITEM: "1",
+		STUB_REAL_GIT: REAL_GIT,
+		STUB_GH_AUTH: "1",
 		...options.env,
 	};
 	if (options.atExpectedPath !== false) {
@@ -145,10 +167,12 @@ function doctor(options: Options = {}) {
 		}
 	}
 	options.setup?.(dir, env);
-	const result = spawnSync(DOCTOR, options.args ?? [], { encoding: "utf-8", env });
+	const result = spawnSync(options.script ?? DOCTOR, options.args ?? [], { encoding: "utf-8", env });
 	const lines = result.stdout.trimEnd().split("\n");
 	const securityCalls = existsSync(join(dir, "security-calls")) ? readFileSync(join(dir, "security-calls"), "utf-8") : "";
 	const dockerCalls = existsSync(join(dir, "docker-calls")) ? readFileSync(join(dir, "docker-calls"), "utf-8") : "";
+	const gitCalls = existsSync(join(dir, "git-calls")) ? readFileSync(join(dir, "git-calls"), "utf-8") : "";
+	const ghCalls = existsSync(join(dir, "gh-calls")) ? readFileSync(join(dir, "gh-calls"), "utf-8") : "";
 	return {
 		dir,
 		status: result.status,
@@ -157,6 +181,8 @@ function doctor(options: Options = {}) {
 		lines,
 		securityCalls,
 		dockerCalls,
+		gitCalls,
+		ghCalls,
 		/** The single check line that contains `text`. */
 		line(text: string): string {
 			const found = lines.filter((line) => line.includes(text));
@@ -254,8 +280,11 @@ describe("scripts/doctor.sh", () => {
 		assert.ok(!run.stdout.includes("image:"), "no image line");
 		assert.equal(run.dockerCalls, "", "docker is not called at all");
 		for (const line of run.lines.slice(0, -1)) assert.match(line, /^(PASS|WARN|FAIL|SKIP) {2}\S/);
-		// A SKIP is neither a warning nor a failure in the summary.
-		assert.match(run.lines.at(-1)!, /^doctor: 0 failed, 1 warning\(s\)$/);
+		// A SKIP is neither a warning nor a failure in the summary. The two warnings: the Keychain item
+		// and the knowledge base's sources (this scratch HOME has no grove .env).
+		assert.equal(run.count("WARN"), 2, run.stdout);
+		assert.ok(run.line("kb sources: not checked").startsWith("WARN  "));
+		assert.match(run.lines.at(-1)!, /^doctor: 0 failed, 2 warning\(s\)$/);
 		assert.equal(doctor({ without: ["docker"] }).status, 0, "a machine without Docker is ready for interactive sessions");
 	});
 
@@ -487,5 +516,395 @@ describe("scripts/doctor.sh --cursor", () => {
 	it("checks nothing of Cursor without the switch", () => {
 		const run = doctor();
 		assert.ok(!run.stdout.includes("cursor:"), run.stdout);
+	});
+});
+
+describe("scripts/kb-sources.sh and the kb sources lines of doctor.sh", () => {
+	const GIT_ENV = {
+		PATH: process.env.PATH ?? "/usr/bin:/bin",
+		GIT_CONFIG_NOSYSTEM: "1",
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_AUTHOR_NAME: "Tester",
+		GIT_AUTHOR_EMAIL: "tester@example.com",
+		GIT_COMMITTER_NAME: "Tester",
+		GIT_COMMITTER_EMAIL: "tester@example.com",
+	};
+	/** The real git for the fixtures, without the recording stub. */
+	function git(cwd: string, ...args: string[]): string {
+		const result = spawnSync(REAL_GIT, args, { cwd, encoding: "utf-8", env: GIT_ENV });
+		assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`);
+		return result.stdout.trim();
+	}
+	function commit(dir: string, file: string, text = `${file}\n`) {
+		mkdirSync(dirname(join(dir, file)), { recursive: true });
+		writeFileSync(join(dir, file), text);
+		git(dir, "add", file);
+		git(dir, "commit", "-q", "-m", `add ${file}`);
+	}
+
+	/**
+	 * A notes checkout at `dir`, cloned from a local bare repository, with one committed note. Its
+	 * origin says https://github.com/<repo>.git, and git's insteadOf sends that to the bare
+	 * repository, so ls-remote answers without a network. `seed` is a second clone that can push
+	 * commits the checkout has never fetched.
+	 */
+	function notesCheckout(dir: string, origin = "https://github.com/acme/notes.git") {
+		const remote = `${dir}.remote.git`;
+		const seed = `${dir}.seed`;
+		mkdirSync(dirname(dir), { recursive: true });
+		git(dirname(dir), "init", "-q", "--bare", "-b", "main", remote);
+		git(dirname(dir), "init", "-q", "-b", "main", seed);
+		commit(seed, "first.md");
+		git(seed, "push", "-q", remote, "main");
+		git(dirname(dir), "clone", "-q", remote, dir);
+		git(dir, "remote", "set-url", "origin", origin);
+		git(dir, "config", `url.${remote}.insteadOf`, origin);
+		git(seed, "remote", "add", "origin", remote);
+		return { dir, seed, remote, origin };
+	}
+
+	/** grove's .env at the default place, ~/dev/pecker-grove/.env. */
+	function groveEnv(home: string, lines: string[]) {
+		mkdirSync(join(home, "dev/pecker-grove"), { recursive: true });
+		writeFileSync(join(home, "dev/pecker-grove/.env"), `${lines.join("\n")}\n`);
+	}
+
+	/** kb-sources.sh with the same stubs and scratch HOME as doctor.sh. */
+	const kbSources = (options: Options = {}) => doctor({ ...options, script: KB_SOURCES, atExpectedPath: false });
+	const kbJson = (options: Options = {}) => {
+		const run = kbSources({ ...options, args: ["--json"] });
+		assert.equal(run.status, 0, run.stderr);
+		return { run, report: JSON.parse(run.stdout) };
+	};
+
+	/** One clean checkout as the single label `notes`; `change` runs on it before the script. */
+	function single(change: (notes: ReturnType<typeof notesCheckout>, home: string) => void = () => {}) {
+		return (home: string) => {
+			const notes = notesCheckout(join(home, "notes"));
+			groveEnv(home, [`NOTES_DIR=${notes.dir}`]);
+			change(notes, home);
+		};
+	}
+
+	const READ_ONLY_GIT = /^-C \S+ (symbolic-ref --short -q (HEAD|refs\/remotes\/origin\/HEAD)|rev-parse -q (--verify|--short) HEAD|-c core\.quotePath=false status --porcelain --untracked-files=all -- \*\.md|config --get remote\.origin\.url|ls-remote --symref origin HEAD|cat-file -e [0-9a-f]{40}\^\{commit\}|merge-base --is-ancestor [0-9a-f]{40} [0-9a-f]{40})$/;
+
+	it("passes a checkout on the default branch at the remote's commit, clean, with no open pull requests", () => {
+		const run = doctor({ setup: single() });
+		assert.equal(run.status, 0, run.stdout);
+		assert.match(run.line("kb sources:"), /^PASS {2}kb sources: notes: \/\S+\/notes \(main at [0-9a-f]{7}\), as on origin\/main; no uncommitted notes, no open pull requests$/);
+		assert.equal(run.ghCalls.trim(), "pr list --repo acme/notes --state open --json number,title,headRefName", "one read-only gh call");
+		const notesCalls = run.gitCalls.split("\n").filter((call) => call.startsWith(`-C ${join(run.dir, "notes")} `));
+		assert.ok(notesCalls.some((call) => call.includes("ls-remote")), run.gitCalls);
+		for (const call of notesCalls) assert.match(call.replace(join(run.dir, "notes"), "<dir>"), READ_ONLY_GIT);
+		const human = kbSources({ setup: single() });
+		assert.equal(human.status, 0);
+		assert.match(human.stdout, /^ok {4}notes: \/\S+\/notes on main at [0-9a-f]{7}, as on the remote; no uncommitted notes, no open pull requests\n$/);
+	});
+
+	it("warns with the fix for a checkout that is not on the default branch", () => {
+		const run = doctor({ setup: single(({ dir }) => git(dir, "switch", "-q", "-c", "notes/draft")) });
+		assert.equal(run.status, 0, run.stdout);
+		const dir = join(run.dir, "notes");
+		assert.equal(run.line("kb sources:"), `WARN  kb sources: notes: ${dir} (notes/draft at ${git(dir, "rev-parse", "--short", "HEAD")}): on notes/draft, not on main. Fix: git -C ${dir} switch main`);
+		const detached = doctor({ setup: single(({ dir }) => git(dir, "switch", "-q", "--detach")) });
+		assert.match(detached.line("kb sources:"), /\(detached HEAD at [0-9a-f]{7}\): detached HEAD, not on main\. Fix: git -C \S+ switch main$/);
+	});
+
+	it("warns for a checkout behind, missing commits of, diverged from or ahead of the remote", () => {
+		const behind = doctor({
+			setup: single(({ dir }) => {
+				commit(dir, "second.md");
+				git(dir, "push", "-q", "origin", "main");
+				git(dir, "reset", "-q", "--hard", "HEAD~1");
+			}),
+		});
+		assert.match(behind.line("kb sources:"), /: behind origin\/main\. Fix: git -C \S+\/notes pull --ff-only$/);
+
+		const unfetched = doctor({
+			setup: single(({ seed }) => {
+				commit(seed, "from-elsewhere.md");
+				git(seed, "push", "-q", "origin", "main");
+			}),
+		});
+		assert.match(unfetched.line("kb sources:"), /: origin\/main has commits this checkout has not fetched\. Fix: git -C \S+\/notes pull --ff-only$/);
+
+		const diverged = doctor({
+			setup: single(({ dir }) => {
+				commit(dir, "pushed.md");
+				git(dir, "push", "-q", "origin", "main");
+				git(dir, "reset", "-q", "--hard", "HEAD~1");
+				commit(dir, "local.md");
+			}),
+		});
+		assert.match(diverged.line("kb sources:"), /: diverged from origin\/main\. Fix: bring the local commits and origin\/main together by hand$/);
+
+		const ahead = doctor({ setup: single(({ dir }) => commit(dir, "local.md")) });
+		assert.match(ahead.line("kb sources:"), /: ahead of origin\/main: local commits not on the remote\. Fix: push the local commits or open a pull request for them$/);
+
+		for (const run of [behind, unfetched, diverged, ahead]) assert.equal(run.status, 0, run.stdout);
+		const { report } = kbJson({ setup: single(({ seed }) => (commit(seed, "x.md"), git(seed, "push", "-q", "origin", "main"))) });
+		assert.equal(report.sources[0].relation, "unfetched");
+	});
+
+	it("lists uncommitted and untracked notes, and only notes", () => {
+		const run = doctor({
+			setup: single(({ dir }) => {
+				writeFileSync(join(dir, "first.md"), "changed\n");
+				mkdirSync(join(dir, "drafts/deep"), { recursive: true });
+				writeFileSync(join(dir, "drafts/deep/idea.md"), "new\n");
+				writeFileSync(join(dir, "scratch.txt"), "not a note\n");
+			}),
+		});
+		assert.equal(run.status, 0, run.stdout);
+		assert.match(
+			run.line("kb sources:"),
+			/: 2 uncommitted notes \(first\.md, drafts\/deep\/idea\.md\), indexed but in no commit\. Fix: commit or remove first\.md, drafts\/deep\/idea\.md$/,
+		);
+		assert.ok(!run.stdout.includes("scratch.txt"));
+	});
+
+	it("names the open pull requests to merge, then the pull", () => {
+		const prs = [
+			{ number: 7, title: 'Add "retro" notes \\ with a backslash', headRefName: "notes/retro" },
+			{ number: 9, title: "Tabs\tand ünïcode", headRefName: "notes/tabs" },
+		];
+		const setup = single((_notes, home) => {
+			mkdirSync(join(home, "gh-prs"));
+			writeFileSync(join(home, "gh-prs/acme_notes.json"), JSON.stringify(prs));
+		});
+		const run = doctor({ setup });
+		assert.equal(run.status, 0, run.stdout);
+		assert.match(run.line("kb sources:"), /: 2 open pull requests \(#7, #9\), not on main yet\. Fix: merge #7, #9, then git -C \S+\/notes pull --ff-only$/);
+		assert.ok(!run.stdout.includes("retro"), "doctor names numbers, not titles");
+		const { report } = kbJson({ setup });
+		assert.deepEqual(report.sources[0].pullRequests.open, [
+			{ number: 7, title: 'Add "retro" notes \\ with a backslash', branch: "notes/retro" },
+			{ number: 9, title: "Tabs and ünïcode", branch: "notes/tabs" },
+		]);
+	});
+
+	it("says the remote was not checked when it is unreachable or silent, and still checks the branch", () => {
+		const offline = doctor({
+			setup: single(({ dir, remote, origin }, home) => {
+				git(dir, "config", "--unset", `url.${remote}.insteadOf`);
+				git(dir, "config", `url.${join(home, "gone.git")}.insteadOf`, origin);
+				git(dir, "switch", "-q", "-c", "notes/draft");
+			}),
+		});
+		assert.equal(offline.status, 0, offline.stdout);
+		assert.match(
+			offline.line("kb sources:"),
+			/: on notes\/draft, not on main; remote not checked, unreachable \(offline, or no access\)\. Fix: git -C \S+ switch main; run this again when online$/,
+		);
+
+		const started = Date.now();
+		const { report } = kbJson({ env: { STUB_GIT_HANG: "1", KB_SOURCES_TIMEOUT: "1" }, setup: single() });
+		assert.ok(Date.now() - started < 8000, "stopped after the time limit, not after the hanging command");
+		const [source] = report.sources;
+		assert.deepEqual(source.remote, { checked: false, commit: null, reason: "no answer within 1s" });
+		assert.equal(source.defaultBranch, "main", "the clone still knows the remote's default branch");
+		assert.equal(source.defaultBranchFrom, "clone");
+		assert.equal(source.relation, null);
+		assert.deepEqual(source.fixes, ["run this again when online"]);
+	});
+
+	it("says the pull requests were not checked without gh or without a gh login", () => {
+		const noGh = doctor({ without: ["gh"], setup: single() });
+		assert.equal(noGh.status, 0, noGh.stdout);
+		assert.match(noGh.line("kb sources:"), /: pull requests not checked, gh is not installed\. Fix: brew install gh, then gh auth login$/);
+		const signedOut = doctor({ env: { STUB_GH_AUTH: "0" }, setup: single() });
+		assert.equal(signedOut.status, 0, signedOut.stdout);
+		assert.match(signedOut.line("kb sources:"), /: pull requests not checked, gh pr list failed \(not signed in, offline, or no access\)\. Fix: gh auth status shows why; gh auth login if signed out$/);
+		const notGitHub = doctor({ setup: (home) => (notesCheckout(join(home, "notes"), "https://git.example.com/notes"), groveEnv(home, [`NOTES_DIR=${join(home, "notes")}`])) });
+		assert.match(notGitHub.line("kb sources:"), /: pull requests not checked, origin is not a GitHub repository\. Fix: nothing, if the notes live outside GitHub$/);
+		assert.equal(notGitHub.ghCalls, "");
+	});
+
+	it("is not checked without grove's .env or without NOTES_DIR, and follows GROVE_DIR", () => {
+		const none = doctor();
+		assert.equal(none.status, 0, none.stdout);
+		assert.match(none.line("kb sources:"), /^WARN {2}kb sources: not checked, there is no \/\S+\/dev\/pecker-grove\/\.env\. Fix: if grove lives elsewhere, name it in GROVE_DIR; /);
+		assert.equal(none.gitCalls.includes("ls-remote"), false);
+
+		const noDir = doctor({ setup: (home) => groveEnv(home, ["NOTES_SOURCES=", "OTHER=1"]) });
+		assert.equal(noDir.status, 0, noDir.stdout);
+		assert.match(noDir.line("kb sources:"), /^WARN {2}kb sources: not checked, \/\S+\/\.env sets no NOTES_DIR\. Fix: set NOTES_DIR in /);
+
+		const elsewhere = doctor({
+			env: { GROVE_DIR: "/somewhere/else" },
+			setup: (home, env) => {
+				const grove = join(home, "code/grove");
+				mkdirSync(grove, { recursive: true });
+				notesCheckout(join(home, "notes"));
+				writeFileSync(join(grove, ".env"), `NOTES_DIR=${join(home, "notes")}\n`);
+				env.GROVE_DIR = grove;
+			},
+		});
+		assert.ok(elsewhere.line("kb sources: notes:").startsWith("PASS  "), elsewhere.stdout);
+
+		const missing = doctor({ setup: (home) => groveEnv(home, [`NOTES_DIR=${join(home, "nowhere")}`]) });
+		assert.match(missing.line("kb sources: notes:"), /^WARN {2}kb sources: notes: \/\S+\/nowhere: not checked, the folder does not exist\. Fix: clone the notes repository there, /);
+		assert.equal(kbSources().status, 0);
+	});
+
+	it("checks every label of NOTES_SOURCES, its folder inside NOTES_DIR", () => {
+		const run = doctor({
+			setup: (home) => {
+				notesCheckout(join(home, "notes/team-notes"));
+				mkdirSync(join(home, "notes/loose"), { recursive: true });
+				groveEnv(home, [`NOTES_DIR='${join(home, "notes")}/'`, 'NOTES_SOURCES="team=team-notes, loose=loose"']);
+			},
+		});
+		assert.equal(run.status, 0, run.stdout);
+		assert.match(run.line("kb sources: team:"), /^PASS {2}kb sources: team: \/\S+\/notes\/team-notes \(main at /);
+		assert.match(run.line("kb sources: loose:"), /^WARN {2}kb sources: loose: \/\S+\/notes\/loose: not checked, the folder is not a git checkout\. Fix: /);
+		const human = kbSources({ setup: (home) => (notesCheckout(join(home, "n/a")), groveEnv(home, [`NOTES_DIR=${join(home, "n")}`, "NOTES_SOURCES=one=a,two=b"])) });
+		assert.deepEqual(
+			human.lines.map((line) => line.split(":")[0]),
+			["ok    one", "warn  two"],
+			"one line per label",
+		);
+	});
+
+	it("prints no value of grove's .env other than NOTES_DIR and NOTES_SOURCES, never sources it, and never prints the origin URL", () => {
+		const setup = (home: string) => {
+			const notes = notesCheckout(join(home, "notes/main-notes"), "https://x-access-token:canary-origin-token@github.com/acme/notes.git");
+			// The last line of a key wins, so the look-alikes come after the real lines.
+			groveEnv(home, [
+				"OPENROUTER_API_KEY=canary-openrouter-1234",
+				'KEYCLOAK_ADMIN_PASSWORD="canary-keycloak"',
+				`export NOTES_DIR=${join(home, "notes")}   # where the notes live`,
+				"NOTES_SOURCES=main=main-notes",
+				"# NOTES_DIR=/canary-commented",
+				"NOTES_DIR_BACKUP=/canary-prefix",
+				"XNOTES_DIR=/canary-suffix",
+				"NOTES_SOURCES_OLD=canary=canary-old",
+				'PWNED=$(touch "$HOME/sourced")',
+				"MORE_SECRET='canary-quoted'",
+			]);
+			commit(notes.dir, "canary-free.md");
+		};
+		const runs = [kbSources({ setup }), kbSources({ setup, args: ["--json"] }), doctor({ setup })];
+		for (const run of runs) {
+			assert.equal(run.status, 0, run.stdout + run.stderr);
+			assert.doesNotMatch(run.stdout + run.stderr, /canary/, run.stdout + run.stderr);
+			assert.ok(!existsSync(join(run.dir, "sourced")), "the .env was sourced");
+			assert.match(run.stdout, /main-notes/, "the label was checked");
+		}
+		assert.equal(JSON.parse(runs[1].stdout).sources[0].repo, "acme/notes");
+		assert.doesNotMatch(runs[2].ghCalls, /canary/);
+	});
+
+	it("writes nothing into a checkout", () => {
+		const snapshot = (dir: string): string[] => {
+			const out: string[] = [];
+			const walk = (path: string) => {
+				for (const name of readdirSync(path, { withFileTypes: true })) {
+					const full = join(path, name.name);
+					if (name.isDirectory()) walk(full);
+					else out.push(`${full} ${readFileSync(full).toString("base64")}`);
+				}
+			};
+			walk(dir);
+			return out.sort();
+		};
+		let before: string[] = [];
+		const run = kbSources({
+			args: ["--json"],
+			setup: single(({ dir, seed }) => {
+				commit(seed, "elsewhere.md");
+				git(seed, "push", "-q", "origin", "main");
+				writeFileSync(join(dir, "draft.md"), "new\n");
+				// Same content, older time stamp: a plain `git status` would refresh the index.
+				utimesSync(join(dir, "first.md"), new Date(2020, 0, 1), new Date(2020, 0, 1));
+				before = snapshot(dir);
+			}),
+		});
+		assert.equal(run.status, 0, run.stderr);
+		assert.deepEqual(snapshot(join(run.dir, "notes")), before, "no fetch, no index refresh, nothing else");
+		assert.equal(JSON.parse(run.stdout).sources[0].relation, "unfetched");
+	});
+
+	it("keeps the shape of --json stable: /kb-status and doctor.sh read it", () => {
+		const { run, report } = kbJson({
+			setup: (home) => {
+				const notes = notesCheckout(join(home, "notes/work"));
+				mkdirSync(join(home, "gh-prs"));
+				writeFileSync(join(home, "gh-prs/acme_notes.json"), JSON.stringify([{ number: 3, title: "Weekly", headRefName: "notes/weekly" }]));
+				writeFileSync(join(notes.dir, "todo.md"), "x\n");
+				groveEnv(home, [`NOTES_DIR=${join(home, "notes")}`, "NOTES_SOURCES=work=work,gone=gone"]);
+			},
+		});
+		const home = run.dir;
+		const dir = join(home, "notes/work");
+		const head = git(dir, "rev-parse", "HEAD");
+		assert.deepEqual(report, {
+			version: 1,
+			groveDir: join(home, "dev/pecker-grove"),
+			envFile: join(home, "dev/pecker-grove/.env"),
+			env: "found",
+			notesDir: join(home, "notes"),
+			status: "ok",
+			problems: [],
+			fixes: [],
+			sources: [
+				{
+					label: "work",
+					dir,
+					checked: true,
+					branch: "main",
+					commit: git(dir, "rev-parse", "--short", "HEAD"),
+					head,
+					defaultBranch: "main",
+					defaultBranchFrom: "remote",
+					remote: { checked: true, commit: head, reason: null },
+					relation: "same",
+					uncommitted: ["todo.md"],
+					repo: "acme/notes",
+					pullRequests: { checked: true, open: [{ number: 3, title: "Weekly", branch: "notes/weekly" }], reason: null },
+					status: "warn",
+					problems: ["1 uncommitted note (todo.md), indexed but in no commit", "1 open pull request (#3), not on main yet"],
+					fixes: ["commit or remove todo.md", `merge #3, then git -C ${dir} pull --ff-only`],
+				},
+				{
+					label: "gone",
+					dir: join(home, "notes/gone"),
+					checked: false,
+					branch: null,
+					commit: null,
+					head: null,
+					defaultBranch: null,
+					defaultBranchFrom: null,
+					remote: { checked: false, commit: null, reason: null },
+					relation: null,
+					uncommitted: [],
+					repo: null,
+					pullRequests: { checked: false, open: [], reason: null },
+					status: "warn",
+					problems: ["not checked, the folder does not exist"],
+					fixes: [`clone the notes repository there, or correct NOTES_DIR or NOTES_SOURCES in ${join(home, "dev/pecker-grove/.env")}`],
+				},
+			],
+		});
+		const empty = kbJson().report;
+		assert.deepEqual(Object.keys(empty), ["version", "groveDir", "envFile", "env", "notesDir", "status", "problems", "fixes", "sources"]);
+		assert.equal(empty.env, "missing");
+		assert.equal(empty.status, "warn");
+		assert.deepEqual(empty.sources, []);
+	});
+
+	it("is what /kb-status runs, next to grove's index_status, and that prompt changes nothing", () => {
+		const prompt = readFileSync(join(NEST, "prompts/kb-status.md"), "utf-8");
+		assert.match(prompt, /^---\ndescription: .+\n---\n/);
+		assert.ok(prompt.includes("`~/dev/pecker-nest/scripts/kb-sources.sh --json`"));
+		assert.ok(prompt.includes("`mcp__kb__index_status`"));
+		assert.match(prompt, /do not merge, pull, fetch, switch, commit, sync or edit anything/);
+		assert.match(prompt, /report the host side only and say so/);
+	});
+
+	it("rejects unknown arguments with exit code 2", () => {
+		const run = kbSources({ args: ["--nope"] });
+		assert.equal(run.status, 2);
+		assert.match(run.stderr, /usage: scripts\/kb-sources\.sh \[--json\]/);
 	});
 });
