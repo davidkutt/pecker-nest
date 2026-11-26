@@ -10,6 +10,7 @@ The knowledge base is the `kb` MCP server: David's Markdown notes and web pages 
 | Tool | Use |
 | --- | --- |
 | `mcp__kb__search_knowledge_base` | Search. Declared directly; start here. |
+| `mcp__kb__index_status` | What grove has indexed per source: the commit it read, its pull state, skipped and failed notes, excluded paths. Declared directly; no parameters. |
 | `mcp__kb__get_document` | Read a whole document that a search hit names. Load it with `tool_search` first. |
 | `mcp__kb__list_sources` | List what the knowledge base holds. Load it with `tool_search` first. |
 
@@ -27,7 +28,7 @@ Skip it for questions the open files already answer completely, and for pure mec
 ## How to query
 
 1. Search with the domain words of the task, not the whole user prompt: `"error handling http client"`, not `"how do I fix the bug in orders"`.
-2. If the first search returns nothing useful, rephrase once with synonyms or the module name. Stop after two empty searches and say the knowledge base has nothing on it.
+2. If the first search returns nothing useful, rephrase once with synonyms or the module name. Stop after two empty searches and call `mcp__kb__index_status` before you conclude anything. If a source is behind its remote, excluded, or has skipped or failed notes, say that: the note may exist and not be indexed. Only when the index is current, say the knowledge base has nothing on it. For the checkouts' side as well (branch, uncommitted notes, open pull requests), David runs `/kb-status`.
 3. Read the top results, prefer the most specific and most recent document when they disagree, and note conflicts.
 
 ## How to use results

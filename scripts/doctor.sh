@@ -13,7 +13,8 @@
 # the fix. A SKIP line names checks that were left out and how to include them; it counts as
 # neither. Exit code 1 when any check failed, else 0. The script only reads: it changes nothing,
 # prints no secret and makes no request that costs tokens. One exception to "changes nothing": the
-# knowledge-base check connects through Pi, and Pi may refresh its own token for it.
+# knowledge-base check connects through Pi, and Pi may refresh its own token for it. The knowledge
+# base's sources (scripts/kb-sources.sh) are read with git ls-remote and gh, never fetched.
 #
 # Runs under macOS bash 3.2 and is fine to call from fish.
 set -uo pipefail
@@ -251,6 +252,41 @@ else
     failed | connecting | disconnected | closed) warn "knowledge base: kb does not answer at $kb_url (grove is not running); sessions work without it. Fix: cd $grove_dir && pnpm stack:up && pnpm dev, then /mcp reconnect kb in a Pi session that is already open" ;;
     *) warn "knowledge base: pi mcp list --json gave no readable answer. Fix: run pi mcp list and read its error" ;;
   esac
+fi
+
+# What grove should be indexing: one line per notes folder from grove's .env (scripts/kb-sources.sh,
+# which reads only NOTES_DIR and NOTES_SOURCES there). Never a FAIL either, and it works while grove
+# is down: git, gh and the network on this machine, nothing from grove.
+if ! have node; then
+  warn "kb sources: not checked, node is missing. Fix: brew install node"
+else
+  kb_sources="$("$nest_dir/scripts/kb-sources.sh" --json 2>/dev/null | node -e '
+    let text = "";
+    process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => {
+      const fix = (fixes) => (fixes.length ? `. Fix: ${fixes.join("; ")}` : "");
+      let report;
+      try {
+        report = JSON.parse(text);
+      } catch {
+        console.log("WARN|kb sources: scripts/kb-sources.sh --json gave no readable answer. Fix: run scripts/kb-sources.sh and read its output");
+        return;
+      }
+      if (report.status !== "ok") console.log(`WARN|kb sources: ${report.problems.join("; ")}${fix(report.fixes)}`);
+      for (const source of report.sources) {
+        const where = source.checked ? `${source.dir} (${source.branch ?? "detached HEAD"} at ${source.commit ?? "no commit"})` : source.dir;
+        if (source.status === "ok") console.log(`PASS|kb sources: ${source.label}: ${where}, as on origin/${source.defaultBranch}; no uncommitted notes, no open pull requests`);
+        else console.log(`WARN|kb sources: ${source.label}: ${where}: ${source.problems.join("; ")}${fix(source.fixes)}`);
+      }
+    });' 2>/dev/null)"
+  if [[ -z "$kb_sources" ]]; then
+    warn "kb sources: scripts/kb-sources.sh --json gave no answer. Fix: run $nest_dir/scripts/kb-sources.sh and read its output"
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      PASS\|*) pass "${line#PASS|}" ;;
+      WARN\|*) warn "${line#WARN|}" ;;
+    esac
+  done <<<"$kb_sources"
 fi
 
 # ------------------------------------------------------------------ models

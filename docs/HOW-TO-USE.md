@@ -26,6 +26,7 @@ This file grows from real tasks. It starts small on purpose.
 - **DO** check that `AGENTS.md` names the check command and `.pi/gate.json` runs exactly that command. "Done" means the gate is green.
 - **DO** `/trust` each repository once. Otherwise the gate doesn't run (Pi says "gate.json ignored: this project is not trusted").
 - **DO** start a fresh Pi session (`/new`) for each new task. A continued session carries the old task's context and branch. [pecker-drum]
+- **DO** run `/kb-status` when nest says the knowledge base has nothing on something you wrote down. The note may sit in an open pull request, on another branch, uncommitted or skipped by grove; `doctor.sh` shows your side in its `kb sources:` lines. (untested) [tasks/kb-sources-status.md]
 - **DON'T** update pecker-nest while a supervised session is open. Its numbers then can't be compared with other sessions. [v1-notes 12.11.2026]
 
 ## Planning

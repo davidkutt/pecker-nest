@@ -42,14 +42,16 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │                             nest-supervise, nest-handoff for the supervising agent, nest-review for a
 │                             review per pull request: Pi's package leaves them out ("!skills/nest-*"),
 │                             scripts/link.sh links them per tool
-├── prompts/                  /plan, /implement <step>, /review
+├── prompts/                  /plan, /implement <step>, /review, /kb-status (what grove indexed next to the
+│                             notes checkouts)
 ├── agent/                    linked into ~/.pi/agent by scripts/link.sh
 │   ├── settings.json         models, tools, compaction, packages (pinned pi-subagents), subagent defaults
 │   ├── models.json           OpenRouter provider routing: ZDR only, no data collection; Kimi K3.1 Pro
 │   │                         gets reasoning_content on replayed assistant messages
 │   ├── APPEND_SYSTEM.md      global working principles
 │   ├── mcp.json              MCP servers: kb, the knowledge base (pecker-grove on localhost; Pi signs in
-│   │                         through OAuth, no token in the file)
+│   │                         through OAuth, no token in the file); the search and index_status are
+│   │                         declared directly
 │   ├── agents/               scout + worker (DeepSeek V4.1 Flash), planner + reviewer (GLM 5.3, max)
 │   └── prompts/              review-chain and its four steps
 ├── claude/skills/            symlinks to skills/nest-*, so links made before the move keep working;
@@ -75,7 +77,10 @@ pecker-nest/                  must live at ~/dev/pecker-nest
 │   ├── cursor-trust.sh       add | remove | list: the repositories where the gate may run in Cursor
 │   ├── doctor.sh             is this machine ready? one PASS/WARN/FAIL line per check, with the fix;
 │   │                         --docker adds the daemon and image checks for headless runs, --cursor the
-│   │                         Cursor adapter; the knowledge base only ever warns
+│   │                         Cursor adapter; the knowledge base and its sources only ever warn
+│   ├── kb-sources.sh         per notes folder grove syncs from: branch, the remote's default branch
+│   │                         (git ls-remote), uncommitted notes, open pull requests; --json for doctor.sh
+│   │                         and /kb-status; reads only NOTES_DIR and NOTES_SOURCES from grove's .env
 │   ├── build-image.sh        builds the Docker image, labelled with the commit it contains
 │   ├── probe-openrouter.ts   live probe of the three models (a few cents, run by hand): endpoints under
 │   │                         the routing block, tool loop, cross-model replay, GLM preserved thinking
@@ -101,7 +106,7 @@ pi list       # ~/dev/pecker-nest and npm:pi-subagents@0.87.0
 ~/dev/pecker-nest/scripts/doctor.sh   # tools, links, login, models; --docker adds daemon and image
 ```
 
-In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
+In a session: `/plan <task>`, `/implement <step>`, `/review`, `/hard` and `/flash`, `/strong glm|kimi`, `/rewind`, `/gate`, `/skill:grill-me <idea>`, `/kb-status`. After a session: `node ~/dev/pecker-nest/scripts/session-report.ts --cwd <repo>`.
 
 ## Supervision and review skills in Claude Code, Cursor and Pi
 

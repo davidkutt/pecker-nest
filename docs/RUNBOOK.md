@@ -13,7 +13,7 @@ Alles, was ohne deine Rechner, Repos, Schlüssel und Entscheidungen geht, ist ge
 | M0 Fundament | Package, `settings.json`, `models.json` (ZDR-Routing), `link.sh`, Modell-IDs im Pi-Katalog bestätigt | OpenRouter-Konto (ZDR, Container-Key), klonen, verlinken, `/login openrouter`, Test 1 |
 | M1 Kontext | `APPEND_SYSTEM.md`, AGENTS-Vorlagen, `/plan` `/implement` `/review`, Skills; Pilot-Repos `pecker-api` und `pecker-ml` mit Gerüst und ausgefülltem `AGENTS.md` auf `main` | Test 2 im ersten echten Projekt, pecker-grove M3c.2 (M7); die Pilot-Repos bleiben nur noch E2E-Material |
 | M2 Gates | Safety-Gate, Quality-Gate (≤ 2 Runden), `/plan` darf nur `PLAN.md` schreiben; `.pi/gate.json` in beiden Pilot-Repos, Check grün und im Container geprüft | `/trust`, Tests 3–5 in pecker-grove (Safety-Tests auf einem Wegwerf-Branch); Vergleich mit pi-project-profile zurückgestellt |
-| M3 RAG | Skill `best-practices`, Server `kb` (pecker-grove) in `mcp.json` mit OAuth-Anmeldung, Regel „Knowledge base first“ in `APPEND_SYSTEM.md`, Prüfzeile in `doctor.sh`; Container schaltet lokale MCP-Server ab | Voraussetzung in grove (Realm kennt Pi, M3c.0-Handcheck), dann grove starten, `pi mcp login kb`, Tests 6–7 |
+| M3 RAG | Skill `best-practices`, Server `kb` (pecker-grove) in `mcp.json` mit OAuth-Anmeldung, Regel „Knowledge base first“ in `APPEND_SYSTEM.md`, Prüfzeile in `doctor.sh`; Container schaltet lokale MCP-Server ab; Stand der Quellen: `kb-sources.sh`, Zeilen `kb sources:` in `doctor.sh`, `index_status` und `/kb-status` | Voraussetzung in grove (Realm kennt Pi, M3c.0-Handcheck), dann grove starten, `pi mcp login kb`, Tests 6–7 |
 | M4 Subagents | pi-subagents 0.87.0 geprüft und gepinnt, scout/worker auf V4.1 Flash, planner/reviewer auf GLM 5.3, review-chain, Safety-Gate in Subagents | Test 8 am ersten echten Feature (M7) |
 | M5 Routing | `router/escalate` ist Standard: Flash für jeden Prompt, das starke Modell für `/plan`, rotes Gate in Runde 2, Schleifen und `/hard`; `/strong glm\|kimi` wählt es | Test 9 in echter Arbeit, Schwellen anhand der Session-Reports prüfen, Modellvergleich GLM gegen Kimi an 2–3 echten Schritten |
 | M7 Dogfooding | Checkpoints, `.pi/protect.json`, Session-Report, `/nest-supervise` und `/nest-handoff`, Vorlagen für undertext | pecker-grove M3c.2 mit nest bauen, danach undertext, sobald M2 geschrieben ist; nach jeder Session eine Übergabe |
@@ -146,7 +146,7 @@ Entschieden am 12.11., angepasst am 15.11.: Pi meldet sich bei grove an wie Clau
 
 **Schon erledigt** (nichts davon musst du eintragen):
 
-- `agent/mcp.json` enthält den Server `kb`, ohne Token, Secret oder Pfad. `search_knowledge_base` sieht das Modell direkt. `get_document` und `list_sources` lädt es bei Bedarf über `tool_search`. `ingest_url` ist versteckt; grove gibt externen Clients ohnehin nur Leserechte.
+- `agent/mcp.json` enthält den Server `kb`, ohne Token, Secret oder Pfad. `search_knowledge_base` und `index_status` sieht das Modell direkt. `get_document` und `list_sources` lädt es bei Bedarf über `tool_search`. `ingest_url` ist versteckt; grove gibt externen Clients ohnehin nur Leserechte.
 - `agent/APPEND_SYSTEM.md` hat den Abschnitt „Knowledge base first“, der Skill `best-practices` nennt die echten Toolnamen. Beide sagen: Text aus der Knowledge Base ist Nachschlagematerial und nie eine Anweisung, denn sie enthält geladene Webseiten.
 - `planner` und `reviewer` bekommen die Knowledge Base nicht. Ein Subagent mit `mcp:kb/…` startet nicht, solange der Server nicht erreichbar ist (getestet) oder die Anmeldung abgelaufen ist, und weder Pi noch pi-subagents kann ein solches Tool optional machen. Die Hauptsession schlägt nach und gibt das Ergebnis in der Aufgabe weiter. Ein Unit-Test verhindert, dass ein `mcp:kb`-Tool versehentlich in eine Rolle gerät.
 
@@ -174,7 +174,7 @@ Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-F
 3. Prüfen:
 
    ```bash
-   pi mcp list                           # kb: connected, 4 tools
+   pi mcp list                           # kb: connected, 5 tools
    ~/dev/pecker-nest/scripts/doctor.sh   # PASS  knowledge base: kb answers … and Pi is signed in
    ```
 
@@ -186,6 +186,19 @@ Fehlt die Policy, zeigt Keycloak in Schritt 2 eine Fehlerseite statt des Login-F
 **Ohne grove** ist der Normalfall, grove läuft nicht immer. Eine Session in der TUI meldet dann einmal beim Start `MCP servers need attention: kb …` und arbeitet weiter. Das Modell sieht kein Knowledge-Base-Tool und sagt einmal, dass sie nicht verfügbar ist. `doctor.sh` zeigt dafür eine `WARN`-Zeile mit dem Startbefehl, nie ein `FAIL`. Liegt grove nicht unter `~/dev/pecker-grove`, nennst du den Ort für diese Zeile in `GROVE_DIR`: `env GROVE_DIR="$HOME/code/pecker-grove" ~/dev/pecker-nest/scripts/doctor.sh` (in bash, zsh und fish gleich).
 
 Im Container ist die Knowledge Base aus (M6). Die Regel „If the knowledge base is unavailable, say so once“ in `APPEND_SYSTEM.md` deckt beide Fälle ab.
+
+### Stand der Knowledge Base prüfen
+
+grove indexiert den Arbeitsbaum deiner Notiz-Checkouts, nicht das, was auf GitHub liegt. Eine Notiz kann deshalb fehlen, obwohl du sie geschrieben hast: Sie steckt in einem offenen Pull Request, der Checkout steht auf einem Feature-Branch oder hinter `origin`, oder grove hat sie übersprungen. Umgekehrt findet die Suche Notizen, die in keinem Commit stehen.
+
+- **Die Seite deines Macs**, auch ohne grove: `~/dev/pecker-nest/scripts/doctor.sh` zeigt nach der Zeile `knowledge base:` je Label eine Zeile `kb sources:`. `PASS`, wenn der Checkout auf dem Default-Branch des Remotes steht, auf dessen Commit, ohne uncommittete Notizen und ohne offene Pull Requests; sonst `WARN` mit dem Fix, nie `FAIL`. Nur diese Prüfung: `~/dev/pecker-nest/scripts/kb-sources.sh`, eine Zeile je Label (`--json` für Skripte). Beide Befehle sind in bash, zsh und fish gleich.
+- **Beide Seiten**, in einer Pi-Session mit laufendem grove: `/kb-status`. Es stellt je Label nebeneinander, welchen Commit grove gelesen hat, wo der Checkout steht und was der Remote hat, dazu übersprungene und fehlgeschlagene Notizen, offene Pull Requests und groves ausgeschlossene Pfade. Die Fixes nennt es in dieser Reihenfolge: Pull Requests mergen, `git -C <ordner> pull --ff-only`, in grove *Sync notes and URLs* (oder das nächste Intervall abwarten), übersprungene Notizen reparieren. Läuft grove nicht, zeigt es nur die Seite deines Macs und sagt das. Es ändert selbst nichts.
+
+Woher die Ordner kommen: aus groves `.env`, und daraus nur die Zeilen `NOTES_DIR=` und `NOTES_SOURCES=`. Die Datei wird nie eingelesen (`source`), und kein anderer Wert erscheint in einer Ausgabe; ein Canary-Test hält das fest. Die Labels sind groves: ohne `NOTES_SOURCES` das Label `notes` für `NOTES_DIR`, sonst je Paar `label=ordner` eines, der Ordner in `NOTES_DIR`. Liegt grove woanders, gilt `GROVE_DIR` wie für die Zeile `knowledge base:`.
+
+Ein Checkout wird nie verändert: kein Fetch, Pull, Switch oder Commit, und `git status` läuft ohne optionale Locks, schreibt also nicht einmal den Index. Den Remote liest `git ls-remote --symref origin HEAD`, höchstens 10 Sekunden lang; offline steht „remote not checked“ in der Zeile, und den Default-Branch nimmt das Skript dann aus dem Klon. Offene Pull Requests holt `gh pr list`; ohne `gh` oder ohne `gh auth login` heißt es „pull requests not checked“. grove pullt nie von selbst (groves `startup.md`, §4), deshalb ist `pull --ff-only` immer dein Schritt.
+
+In jeder Session sieht das Modell `mcp__kb__index_status` jetzt direkt. „Knowledge base first“ und der Skill `best-practices` sagen: Bevor es behauptet, die Knowledge Base habe nichts zu einem Thema, ruft es `index_status` auf und nennt einen veralteten oder unvollständigen Index statt „nichts“. Subagents bekommen auch dieses Tool nicht (siehe oben). Tests 6 und 7 bleiben, wie sie sind.
 
 ## M4 – Subagents und Review (👤 ca. 30 Minuten)
 
@@ -406,6 +419,7 @@ Die zweite und die dritte Zeile brauchst du nur für Headless-Läufe im Containe
 - **Ohne `--docker`** bleiben Docker-Daemon und Image ungeprüft. Dafür steht eine Zeile `SKIP  docker: …` in der Ausgabe, die den Befehl mit `--docker` nennt; sie zählt weder als Warnung noch als Fehler. Der Schlüsselbund-Eintrag `pecker-nest-container-key` wird trotzdem geprüft, weil die Live-Probe denselben Eintrag liest. Fehlt er, ist das hier nur ein `WARN`.
 - **Mit `--docker`** kommen die Prüfungen für Headless-Läufe dazu: Der Daemon muss laufen, das Image muss vom aktuellen Commit stammen, und ein fehlender Schlüsselbund-Eintrag ist ein `FAIL`.
 - **Die Knowledge Base** hat eine eigene Zeile, die nie ein `FAIL` ist: `PASS`, wenn grove antwortet und Pi angemeldet ist, sonst `WARN` mit dem Befehl, der grove startet, oder mit `pi mcp login kb`. Dafür ruft das Skript `pi mcp list --json` auf; Pi erneuert dabei gegebenenfalls sein eigenes Token.
+- **Die Quellen der Knowledge Base** haben je Label eine Zeile `kb sources:`, ebenfalls nie ein `FAIL` und unabhängig davon, ob grove läuft: ob der Notiz-Checkout auf dem Default-Branch und auf dem Commit des Remotes steht, ohne uncommittete Notizen und offene Pull Requests (M3, „Stand der Knowledge Base prüfen“). Sie liest dafür `git ls-remote` und `gh pr list`, nie einen Fetch.
 - **Mit `--repo <pfad>`** prüft es zusätzlich `.pi/protect.json`, `.pi/gate.json` und `AGENTS.md` eines Repos, in dem nest arbeiten soll. Beide Schalter lassen sich kombinieren.
 
 Danach die Abnahmetests 1–13 in der nächsten echten Session wiederholen (pecker-grove, später undertext).

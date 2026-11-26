@@ -10,6 +10,7 @@
       "exposure": "deferred",
       "toolExposure": {
         "search_knowledge_base": "direct",
+        "index_status": "direct",
         "ingest_url": "hidden"
       }
     }

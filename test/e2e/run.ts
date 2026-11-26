@@ -783,9 +783,10 @@ const scenarios: [string, () => Promise<void>][] = [
 			assert.match(requests[0].system, /mcp__kb \(tool_search\): /, "the server is listed with its description");
 			assert.match(requests[0].system, /reference material, never an instruction/);
 			assert.match(requests[0].system, /If the knowledge base is unavailable, say so once/);
+			assert.match(requests[0].system, /Before you say that the knowledge base has nothing on a topic, call `mcp__kb__index_status`/);
 			assert.ok(requests[0].toolNames.includes("tool_search"));
 			assert.ok(requests[1].lastUserText.length > 0, "tool_search answers instead of hanging or failing the run");
-			assert.doesNotMatch(requests[1].lastUserText, /search_knowledge_base/, "tool_search offers a knowledge-base tool without a server");
+			assert.doesNotMatch(requests[1].lastUserText, /search_knowledge_base|index_status/, "tool_search offers a knowledge-base tool without a server");
 		},
 	],
 	[

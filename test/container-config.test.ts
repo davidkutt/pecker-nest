@@ -127,10 +127,12 @@ describe("the repository's agent/mcp.json", () => {
 		assert.doesNotMatch(text, /\/Users\/|\/home\/|~\/|\$\{|"!/, "a home path, an environment variable or a command value");
 	});
 
-	it("hides the write tool and declares only the search directly", () => {
+	it("hides the write tool and declares only the search and the index status directly", () => {
 		const kb = real.mcpServers.kb as { exposure?: string; toolExposure?: Record<string, string> };
 		assert.equal(kb.exposure, "deferred");
-		assert.deepEqual(kb.toolExposure, { search_knowledge_base: "direct", ingest_url: "hidden" });
+		// index_status has no parameters and helps exactly when a search comes back empty (docs/tasks/kb-sources-status.md).
+		assert.deepEqual(kb.toolExposure, { search_knowledge_base: "direct", index_status: "direct", ingest_url: "hidden" });
+		assert.equal(containerMcpConfig(real).config.mcpServers.kb.enabled, false, "the container still switches the knowledge base off");
 	});
 
 	it("is used by no subagent: a subagent with an mcp:kb tool does not start while the server is down", () => {
